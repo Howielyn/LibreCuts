@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">LibreCuts</string>
+    <string name="add_video">Add Video</string>
+    <string name="create_engaging_videos">Free. Open-Source. Limitless Creativity!</string>
+    <string name="trim">Trim</string>
+    <string name="split">Split</string>
+    <string name="effects">Effects</string>
+    <string name="export">Export</string>
+    <string name="delete">Delete</string>
+    <string name="trim_video">Trim video</string>
+    <string name="save_video">Save the video to device</string>
+    <string name="add_overly">Add overly to video</string>
+    <string name="add_text">Add text to the video</string>
+    <string name="add_audio">Add audio to the music</string>
+    <string name="crop_video">Crop the video</string>
+    <string name="merge_video">Add another video or image</string>
+</resources>

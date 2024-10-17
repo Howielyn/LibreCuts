@@ -1,0 +1,12 @@
+<resources>
+    <color name="colorPrimary">#000000</color> <!-- Pure black -->
+    <color name="colorPrimaryVariant">#1A1A1A</color> <!-- Dark variant of black -->
+    <color name="colorOnPrimary">#FF4081</color> <!-- Pink on primary -->
+    <color name="colorSecondary">#000000</color> <!-- Black -->
+    <color name="colorSecondaryVariant">#1A1A1A</color> <!-- Dark variant of black -->
+    <color name="colorOnSecondary">#FFFFFF</color> <!-- White on secondary -->
+    <color name="background">#121212</color> <!-- Background color -->
+    <color name="textColor">#E0E0E0</color> <!-- Text color -->
+    <color name="navigationBarColor">#121212</color> <!-- Navigation bar color -->
+    <color name="statusBarColor">#121212</color> <!-- Status bar color -->
+</resources>
