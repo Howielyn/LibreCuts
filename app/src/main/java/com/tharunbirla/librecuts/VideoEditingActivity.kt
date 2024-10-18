@@ -4,13 +4,19 @@ import android.annotation.SuppressLint
 import android.content.Context
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import android.content.DialogInterface
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.view.View
 import android.widget.ImageButton
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -41,10 +47,12 @@ class VideoEditingActivity : AppCompatActivity() {
     private var videoUri: Uri? = null
     private var videoFileName: String = ""
     private lateinit var tempInputFile: File
+    private lateinit var loadingScreen: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_editing)
+        loadingScreen = findViewById(R.id.loadingScreen)
 
         // Initialize UI components and setup the player
         initializeViews()
@@ -187,9 +195,15 @@ class VideoEditingActivity : AppCompatActivity() {
             playerView.player = this // Bind player to the player view
             setMediaItem(MediaItem.fromUri(videoUri!!)) // Set the new media item
             prepare() // Prepare the player
-            playWhenReady = true // Start playback automatically
+            playWhenReady = false // Start playback automatically
+            seekTo(0) // Seek to the start of the video
         }
+
+        // Update the custom seeker to reflect the new video's duration
+        customVideoSeeker.setVideoDuration(player.duration)
+        updateDurationDisplay(0, player.duration.toInt()) // Reset duration display
     }
+
 
     private fun saveAction() {
         // Placeholder for future implementation of save functionality
@@ -203,6 +217,10 @@ class VideoEditingActivity : AppCompatActivity() {
 
             val mediaItem = MediaItem.fromUri(videoUri!!)
             player.setMediaItem(mediaItem) // Set media item for the player
+
+            // Show loading screen while preparing the video
+            loadingScreen.visibility = View.VISIBLE
+
             player.prepare() // Prepare the player for playback
 
             // Get the actual file path from the URI
@@ -217,10 +235,18 @@ class VideoEditingActivity : AppCompatActivity() {
                     try {
                         val media = getVideoMetadata(this@VideoEditingActivity, videoUri!!)
                         Log.d("MetadataSuccess", "Media: $media")
-                        // Use the media data as needed (e.g., display file name, size)
+
+                        // Call to extract frames for display after loading
+                        extractVideoFrames() // Extract frames after metadata is fetched
+
                     } catch (e: Exception) {
                         Log.e("MetadataError", "Error fetching video metadata: ${e.message}")
                         Toast.makeText(this@VideoEditingActivity, "Error fetching video metadata: ${e.message}", Toast.LENGTH_SHORT).show()
+                    } finally {
+//                        // Hide loading screen after 5 seconds
+//                        Handler(Looper.getMainLooper()).postDelayed({
+//                            loadingScreen.visibility = View.GONE
+//                        }, 500) // 5000 milliseconds = 5 seconds
                     }
                 }
             } else {
@@ -234,7 +260,6 @@ class VideoEditingActivity : AppCompatActivity() {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) {
                         customVideoSeeker.setVideoDuration(player.duration) // Set duration on seeker
-                        extractVideoFrames() // Extract frames for display
                     }
                 }
 
@@ -250,6 +275,7 @@ class VideoEditingActivity : AppCompatActivity() {
             Toast.makeText(this, "Error loading video", Toast.LENGTH_SHORT).show()
         }
     }
+
 
     private fun getFilePathFromUri(uri: Uri): String? {
         var filePath: String? = null
@@ -296,25 +322,45 @@ class VideoEditingActivity : AppCompatActivity() {
 
     private fun setupFrameRecyclerView() {
         frameRecyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
-        frameRecyclerView.adapter = FrameAdapter(listOf(videoFileName)) // Initialize frame adapter with video name
+        frameRecyclerView.adapter = FrameAdapter(emptyList()) // Initialize frame adapter with video name
     }
 
     private fun extractVideoFrames() {
-        lifecycleScope.launch(Dispatchers.Main) {
-            val duration = player.duration
-            val frameInterval = duration / 10 // Calculate interval for frame extraction
+        // This function no longer needs to show/hide loading screen
+        lifecycleScope.launch(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(tempInputFile.absolutePath)
 
-            val frameFileNames = mutableListOf<String>()
+            // Switch to the main thread to access player properties
+            val duration = withContext(Dispatchers.Main) { player.duration }
+            val frameInterval = duration / 10 // Extract fewer frames
 
-            for (i in 0 until 10) {
-                val frameTime = i * frameInterval / 1000
-                frameFileNames.add("$videoFileName $frameTime") // Add frame names to list
+            val frameBitmaps = mutableListOf<Bitmap>()
+            val frameCount = 10 // Adjust to change how many frames you extract
+
+            for (i in 0 until frameCount) {
+                val frameTime = (i * frameInterval) // Time in microseconds
+                val bitmap = retriever.getFrameAtTime(frameTime * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                bitmap?.let {
+                    val processedBitmap = Bitmap.createScaledBitmap(it, 200, 150, false) // Example resizing
+                    frameBitmaps.add(processedBitmap)
+                }
             }
 
-            // Set the adapter with distinct frame file names
-            frameRecyclerView.adapter = FrameAdapter(frameFileNames.distinct())
+            retriever.release()
+
+            // Switch back to the main thread to update the RecyclerView
+            withContext(Dispatchers.Main) {
+                frameRecyclerView.adapter = FrameAdapter(frameBitmaps)
+                // Hide loading screen after 5 seconds
+                loadingScreen.visibility = View.GONE
+            }
         }
     }
+
+
+
+
 
     @SuppressLint("SetTextI18n")
     private fun updateDurationDisplay(current: Int, total: Int) {

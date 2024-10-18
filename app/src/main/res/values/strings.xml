@@ -2,6 +2,7 @@
     <string name="app_name">LibreCuts</string>
     <string name="add_video">Add Video</string>
     <string name="create_engaging_videos">Free. Open-Source. Limitless Creativity!</string>
+    <string name="home">Home</string>
     <string name="trim">Trim</string>
     <string name="split">Split</string>
     <string name="effects">Effects</string>
@@ -14,4 +15,6 @@
     <string name="add_audio">Add audio to the music</string>
     <string name="crop_video">Crop the video</string>
     <string name="merge_video">Add another video or image</string>
+    <string name="loading">Importing Video…</string>
+    <string name="default_time_stamp">00:00 / 00:00</string>
 </resources>
