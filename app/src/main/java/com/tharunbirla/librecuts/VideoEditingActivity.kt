@@ -10,13 +10,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
+import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageButton
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -29,6 +28,7 @@ import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.StyledPlayerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.tharunbirla.librecuts.customviews.CustomVideoSeeker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,6 +72,106 @@ class VideoEditingActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnSave).setOnClickListener { saveAction() }
         findViewById<ImageButton>(R.id.btnDel).setOnClickListener { deleteAction() }
         findViewById<ImageButton>(R.id.btnTrim).setOnClickListener { trimAction() }
+        findViewById<ImageButton>(R.id.btnOverlay).setOnClickListener { overlayAction() }
+        findViewById<ImageButton>(R.id.btnText).setOnClickListener { textAction() }
+        findViewById<ImageButton>(R.id.btnAudio).setOnClickListener { audioAction() }
+        findViewById<ImageButton>(R.id.btnCrop).setOnClickListener { cropAction() }
+        findViewById<ImageButton>(R.id.btnMerge).setOnClickListener { mergeAction() }
+    }
+
+    private fun mergeAction() {
+        TODO("Not yet implemented")
+    }
+
+    private fun cropAction() {
+        // Create BottomSheetDialog
+        val bottomSheetDialog = BottomSheetDialog(this)
+        val sheetView = layoutInflater.inflate(R.layout.crop_bottom_sheet_dialog, null)
+
+        // Set title
+        sheetView.findViewById<TextView>(R.id.tvTitleCrop).text = "Select Aspect Ratio"
+
+        // Set button click listeners for aspect ratios
+        sheetView.findViewById<FrameLayout>(R.id.frameAspectRatio1).setOnClickListener {
+            cropVideo("16:9")
+            bottomSheetDialog.dismiss()
+        }
+
+        sheetView.findViewById<FrameLayout>(R.id.frameAspectRatio2).setOnClickListener {
+            cropVideo("9:16")
+            bottomSheetDialog.dismiss()
+        }
+
+        sheetView.findViewById<FrameLayout>(R.id.frameAspectRatio3).setOnClickListener {
+            cropVideo("1:1")
+            bottomSheetDialog.dismiss()
+        }
+
+        // Set cancel button listener
+        sheetView.findViewById<Button>(R.id.btnCancelCrop).setOnClickListener {
+            bottomSheetDialog.dismiss()
+        }
+
+        bottomSheetDialog.setContentView(sheetView)
+        bottomSheetDialog.show()
+    }
+
+
+
+    private fun cropVideo(aspectRatio: String) {
+        // Retrieve the video URI from the intent
+        val videoUri = intent.getParcelableExtra<Uri>("VIDEO_URI")
+        if (videoUri == null) {
+            Toast.makeText(this, "Error retrieving video URI", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Fetch video metadata asynchronously to get the file path
+        lifecycleScope.launch {
+            try {
+                val media = getVideoMetadata(this@VideoEditingActivity, videoUri)
+                val inputPath = media.uri.toString() // Get the actual file path
+                val outputDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+                if (!outputDir.exists()) {
+                    outputDir.mkdirs() // Create output directory if it doesn't exist
+                }
+
+                val outputPath = File(outputDir, "cropped_${System.currentTimeMillis()}.mp4").absolutePath
+                Log.d("CropAction", "Output file path: $outputPath")
+
+                // Define crop parameters based on aspect ratio
+                    val cropCommand = when (aspectRatio) {
+                        "16:9" -> "-vf \"crop=iw:iw*9/16\""
+                        "9:16" -> "-vf \"crop=ih*9/16:ih\""
+                        "1:1" -> "-vf \"crop=ih:ih\""
+                        else -> return@launch
+                    }
+
+                // Build the FFmpeg command correctly
+                val command = "-i \"$inputPath\" $cropCommand -c:a copy \"$outputPath\""
+                Log.d("FFmpegCommand", "FFmpeg command: $command")
+
+                executeFFmpegCommand(command, outputPath)
+
+            } catch (e: Exception) {
+                Log.e("MetadataError", "Error fetching video metadata: ${e.message}")
+                Toast.makeText(this@VideoEditingActivity, "Error fetching video metadata: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+    private fun audioAction() {
+        TODO("Not yet implemented")
+    }
+
+    private fun textAction() {
+        TODO("Not yet implemented")
+    }
+
+    private fun overlayAction() {
+        TODO("Not yet implemented")
     }
 
     private fun deleteAction() {
@@ -101,25 +201,33 @@ class VideoEditingActivity : AppCompatActivity() {
                 val media = getVideoMetadata(this@VideoEditingActivity, videoUri)
                 val realFilePath = media.uri.toString() // Get the actual file path
 
-                // Show dialog to choose trim option
-                val options = arrayOf("Keep left portion", "Keep right portion")
-                MaterialAlertDialogBuilder(this@VideoEditingActivity)
-                    .setTitle("Trim Your Video")
-                    .setItems(options) { _: DialogInterface, which: Int ->
-                        when (which) {
-                            0 -> trimRight(currentSeekTime, realFilePath) // Trim right
-                            1 -> trimLeft(currentSeekTime, realFilePath) // Trim left
-                        }
-                    }
-                    .setIcon(R.drawable.ic_split_24)
-                    .setNegativeButton("Cancel", null)
-                    .show()
+                // Create BottomSheetDialog
+                val bottomSheetDialog = BottomSheetDialog(this@VideoEditingActivity)
+                val sheetView = layoutInflater.inflate(R.layout.trim_bottom_sheet_dialog, null)
+
+                // Set button click listeners
+                sheetView.findViewById<FrameLayout>(R.id.frameTrimRight).setOnClickListener {
+                    trimRight(currentSeekTime, realFilePath) // Trim right
+                    bottomSheetDialog.dismiss()
+                }
+                sheetView.findViewById<FrameLayout>(R.id.frameTrimLeft).setOnClickListener {
+                    trimLeft(currentSeekTime, realFilePath) // Trim left
+                    bottomSheetDialog.dismiss()
+                }
+                sheetView.findViewById<Button>(R.id.btnCancelCrop).setOnClickListener {
+                    bottomSheetDialog.dismiss()
+                }
+
+                bottomSheetDialog.setContentView(sheetView)
+                bottomSheetDialog.show()
+
             } catch (e: Exception) {
                 Log.e("MetadataError", "Error fetching video metadata: ${e.message}")
                 Toast.makeText(this@VideoEditingActivity, "Error fetching video metadata: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
 
     private fun trimLeft(newSeekTime: Long, inputPath: String) {
         Log.d("TrimAction", "Input file path: $inputPath")

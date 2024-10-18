@@ -17,4 +17,8 @@
     <string name="merge_video">Add another video or image</string>
     <string name="loading">Importing Video…</string>
     <string name="default_time_stamp">00:00 / 00:00</string>
+    <string name="trim_your_video">Trim your video</string>
+    <string name="cancel">Cancel</string>
+    <string name="keep_right_portion">Remove left</string>
+    <string name="keep_left_portion">Remove right</string>
 </resources>
