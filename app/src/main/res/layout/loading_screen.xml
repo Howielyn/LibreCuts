@@ -1,31 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
     android:background="@android:color/black"
-    android:gravity="center">
+    tools:context=".MainActivity">
 
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:cardBackgroundColor="?attr/colorSurface"
-        app:cardCornerRadius="16dp"
-        app:strokeColor="?attr/colorOnSurface"
-        app:strokeWidth="1dp"
-        android:padding="24dp"
-    android:layout_margin="32dp">
+    <com.airbnb.lottie.LottieAnimationView
+        android:id="@+id/lottieAnimation"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        app:lottie_rawRes="@raw/film"
+        app:lottie_autoPlay="true"
+        app:lottie_loop="true"/>
 
     <TextView
-        android:id="@+id/loadingMessage"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center"
         android:text="@string/loading"
-        android:textColor="?attr/colorOnSurface"
-        android:textSize="18sp"
-        android:padding="16dp"/>
+        android:textSize="19sp"
+        android:textColor="@color/colorOnSecondary"/>
 
-</com.google.android.material.card.MaterialCardView>
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="40dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="40dp"
+        android:gravity="center"
+        android:text="@string/loading_tag"
+        android:textColor="@color/colorOnSecondary"
+        android:textSize="14sp"/>
 
-    </RelativeLayout>
+</LinearLayout>

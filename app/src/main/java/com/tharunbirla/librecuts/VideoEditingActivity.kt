@@ -19,15 +19,14 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.airbnb.lottie.LottieAnimationView
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegSession
-import com.arthenica.ffmpegkit.LogCallback
+import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
-import com.arthenica.ffmpegkit.Statistics
-import com.arthenica.ffmpegkit.StatisticsCallback
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
@@ -39,7 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
-import com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback
+
 
 @Suppress("DEPRECATION")
 class VideoEditingActivity : AppCompatActivity() {
@@ -53,11 +52,19 @@ class VideoEditingActivity : AppCompatActivity() {
     private var videoFileName: String = ""
     private lateinit var tempInputFile: File
     private lateinit var loadingScreen: View
+    private lateinit var lottieAnimationView: LottieAnimationView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_editing)
         loadingScreen = findViewById(R.id.loadingScreen)
+        lottieAnimationView = findViewById(R.id.lottieAnimation)
+        try {
+            lottieAnimationView.playAnimation()
+        } catch (e: Exception) {
+            Log.e("LottieError", "Error loading Lottie animation: ${e.message}")
+            // Handle the error gracefully
+        }
 
         // Initialize UI components and setup the player
         initializeViews()

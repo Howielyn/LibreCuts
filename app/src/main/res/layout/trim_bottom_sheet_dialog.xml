@@ -42,7 +42,7 @@
                 <ImageView
                     android:layout_width="24dp"
                     android:layout_height="24dp"
-                    android:src="@drawable/ic_trim_right_24"
+                    android:src="@drawable/ic_trim_left_24"
                     android:layout_marginBottom="8dp"
                     tools:ignore="ContentDescription" />
                 <TextView
@@ -71,7 +71,7 @@
                 <ImageView
                     android:layout_width="24dp"
                     android:layout_height="24dp"
-                    android:src="@drawable/ic_trim_left_24"
+                    android:src="@drawable/ic_trim_right_24"
                     android:layout_marginBottom="8dp"
                     tools:ignore="ContentDescription" />
                 <TextView
