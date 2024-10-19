@@ -2,6 +2,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:orientation="vertical"
     android:padding="25dp"
     android:background="#1E1E1E">
@@ -24,71 +25,21 @@
         android:orientation="horizontal"
         android:layout_marginBottom="16dp">
 
-        <FrameLayout
-            android:id="@+id/frameTrimRight"
-            android:layout_width="0dp"
+        <com.google.android.material.slider.RangeSlider
+            android:id="@+id/rangeSlider"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/aspect_ratio_background"
-            android:layout_marginEnd="8dp"
-            android:padding="1dp">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:padding="12dp"
-                android:background="#1E1E1E">
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_trim_left_24"
-                    android:layout_marginBottom="8dp"
-                    tools:ignore="ContentDescription" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/keep_left_portion"
-                    android:textColor="@android:color/white"/>
-            </LinearLayout>
-        </FrameLayout>
+            android:layout_marginBottom="16dp"
+            app:values="@array/slider_values" />
 
-        <FrameLayout
-            android:id="@+id/frameTrimLeft"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/aspect_ratio_background_selected"
-            android:layout_marginEnd="8dp"
-            android:padding="1dp">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:padding="12dp"
-                android:background="#1E1E1E">
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_trim_right_24"
-                    android:layout_marginBottom="8dp"
-                    tools:ignore="ContentDescription" />
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/keep_right_portion"
-                    android:textColor="@android:color/white"/>
-            </LinearLayout>
-        </FrameLayout>
 
     </LinearLayout>
 
     <Button
-        android:id="@+id/btnCancelCrop"
+        android:id="@+id/btnDoneTrim"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/cancel"
+        android:text="@string/done"
         android:textColor="@android:color/black"
         android:background="@drawable/rounded_button"
         android:paddingTop="12dp"

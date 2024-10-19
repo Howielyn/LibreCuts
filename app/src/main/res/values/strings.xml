@@ -22,4 +22,5 @@
     <string name="keep_right_portion">Remove left</string>
     <string name="keep_left_portion">Remove right</string>
     <string name="loading_tag">Buckle up! Your video is loading</string>
+    <string name="done">Done</string>
 </resources>

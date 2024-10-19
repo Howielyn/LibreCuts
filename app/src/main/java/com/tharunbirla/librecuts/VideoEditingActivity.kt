@@ -19,19 +19,18 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.airbnb.lottie.LottieAnimationView
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.ReturnCode
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.StyledPlayerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.slider.RangeSlider
 import com.tharunbirla.librecuts.customviews.CustomVideoSeeker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -289,102 +288,95 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun trimAction() {
-        val currentSeekTime = player.currentPosition
         val videoDuration = player.duration
 
-        // Validate the current seek position
-        if (currentSeekTime <= 0 || currentSeekTime >= videoDuration) {
-            Toast.makeText(this, "Cannot trim at the start or end of the video.", Toast.LENGTH_SHORT).show()
+        // Validate the video duration
+        if (videoDuration <= 0) {
+            Toast.makeText(this, "Video duration is invalid.", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Retrieve the video URI from the intent
-        val videoUri = intent.getParcelableExtra<Uri>("VIDEO_URI")
-        if (videoUri == null) {
-            Toast.makeText(this, "Error retrieving video URI", Toast.LENGTH_SHORT).show()
-            return
-        }
+        // Create BottomSheetDialog
+        val bottomSheetDialog = BottomSheetDialog(this@VideoEditingActivity)
+        val sheetView = layoutInflater.inflate(R.layout.trim_bottom_sheet_dialog, null)
 
-        // Fetch video metadata asynchronously
-        lifecycleScope.launch {
-            try {
-                val media = getVideoMetadata(this@VideoEditingActivity, videoUri)
-                val realFilePath = media.uri.toString() // Get the actual file path
+        val rangeSlider: RangeSlider = sheetView.findViewById(R.id.rangeSlider)
 
-                // Create BottomSheetDialog
-                val bottomSheetDialog = BottomSheetDialog(this@VideoEditingActivity)
-                val sheetView = layoutInflater.inflate(R.layout.trim_bottom_sheet_dialog, null)
+        // Convert duration to minutes and seconds
+        val durationInMillis: Long = videoDuration
+        val totalMinutes = (durationInMillis / 60000).toInt()
+        val totalSeconds = ((durationInMillis % 60000) / 1000).toInt()
 
-                // Set button click listeners
-                sheetView.findViewById<FrameLayout>(R.id.frameTrimRight).setOnClickListener {
-                    trimRight(currentSeekTime, realFilePath) // Trim right
-                    bottomSheetDialog.dismiss()
+        // Format as float for the RangeSlider (00.00)
+        val formattedValueTo = (totalMinutes * 60 + totalSeconds).toFloat() // Total seconds as float
+
+        rangeSlider.valueFrom = 0f
+        rangeSlider.valueTo = formattedValueTo
+        rangeSlider.values = listOf(0f, formattedValueTo) // Set initial range
+
+        // Log the values for debugging
+        Log.d("RangeSlider", "Value from: ${rangeSlider.valueFrom}, Value to: ${rangeSlider.valueTo}")
+
+        rangeSlider.addOnChangeListener { slider, value, fromUser ->
+            val start = slider.values[0].toLong() * 1000 // Convert to milliseconds
+            val end = slider.values[1].toLong() * 1000 // Convert to milliseconds
+
+            // Update the player’s playback position based on the start value
+            if (fromUser) {
+                if (value == slider.values[0]) {
+                    player.seekTo(start)
                 }
-                sheetView.findViewById<FrameLayout>(R.id.frameTrimLeft).setOnClickListener {
-                    trimLeft(currentSeekTime, realFilePath) // Trim left
-                    bottomSheetDialog.dismiss()
+                else if (value == slider.values[1]) {
+                    player.seekTo(end)
                 }
-                sheetView.findViewById<Button>(R.id.btnCancelCrop).setOnClickListener {
-                    bottomSheetDialog.dismiss()
-                }
-
-                bottomSheetDialog.setContentView(sheetView)
-                bottomSheetDialog.show()
-
-            } catch (e: Exception) {
-                Log.e("MetadataError", "Error fetching video metadata: ${e.message}")
-                Toast.makeText(this@VideoEditingActivity, "Error fetching video metadata: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
-    }
 
-    private fun trimLeft(newSeekTime: Long, inputPath: String) {
-        Log.d("TrimAction", "Input file path: $inputPath")
-
-        val outputDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        if (!outputDir.exists()) {
-            outputDir.mkdirs() // Create output directory if it doesn't exist
+        // Set up button listeners
+        sheetView.findViewById<Button>(R.id.btnDoneTrim).setOnClickListener {
+            trimVideo(rangeSlider.values[0].toLong(), rangeSlider.values[1].toLong())
         }
 
-        val outputPath = File(outputDir, "trimmed_left_${System.currentTimeMillis()}.mp4").absolutePath
-        Log.d("TrimAction", "Output file path: $outputPath")
-        val trimTimeFormatted = String.format(Locale.getDefault(),"%02d:%02d", newSeekTime / 60000, (newSeekTime / 1000) % 60)
-        val command = "-ss $trimTimeFormatted -i \"$inputPath\" -c copy \"$outputPath\""
-        Log.d("FFmpegCommand", "FFmpeg command: $command")
-
-        executeFFmpegCommand(command, outputPath)
+        bottomSheetDialog.setContentView(sheetView)
+        bottomSheetDialog.show()
     }
 
-    private fun trimRight(newSeekTime: Long, inputPath: String) {
-        Log.d("TrimAction", "Input file path: $inputPath")
+    private fun trimVideo(trimBeginingTime: Long, trimEndTime: Long) {
+        lifecycleScope.launch {
+            val media = videoUri?.let { getVideoMetadata(this@VideoEditingActivity, it) }
+            val realFilePath = media?.uri.toString()
 
-        val outputDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        if (!outputDir.exists()) {
-            outputDir.mkdirs() // Create output directory if it doesn't exist
+            val outputDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!outputDir.exists()) {
+                outputDir.mkdirs() // Create output directory if it doesn't exist
+            }
+            val outputPath = File(outputDir, "trimmed_video_${System.currentTimeMillis()}.mp4").absolutePath
+            Log.d("TrimAction", "Output file path: $outputPath")
+            val command = "-ss $trimBeginingTime -i \"$realFilePath\" -to $trimEndTime -c copy \"$outputPath\""
+            Log.d("FFmpegCommand", "FFmpeg command: $command")
+            executeFFmpegCommand(command, outputPath)
         }
-
-        val outputPath = File(outputDir, "trimmed_right_${System.currentTimeMillis()}.mp4").absolutePath
-        Log.d("TrimAction", "Output file path: $outputPath")
-        val trimTimeFormatted = String.format(Locale.getDefault(),"%02d:%02d", newSeekTime / 60000, (newSeekTime / 1000) % 60)
-        val command = "-ss 00:00 -i \"$inputPath\" -to $trimTimeFormatted -c copy \"$outputPath\""
-        Log.d("FFmpegCommand", "FFmpeg command: $command")
-
-        executeFFmpegCommand(command, outputPath)
     }
 
     private fun executeFFmpegCommand(command: String, outputPath: String) {
-        FFmpegKit.executeAsync(command) { session ->
-            runOnUiThread {
-                if (ReturnCode.isSuccess(session.returnCode)) {
-                    Log.d("EditSuccess", "Video edited successfully!")
-                    Toast.makeText(this, "Video edited successfully!", Toast.LENGTH_SHORT).show()
-                    videoUri = Uri.parse(outputPath) // Update video URI to the trimmed video
-                    refreshPlayer() // Refresh player with new video
-                    refreshUI() // Update UI components
-                } else {
-                    Log.e("TrimError", "Error trimming video: ${session.returnCode}")
-                    Toast.makeText(this, "Error trimming video: ${session.returnCode}", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            try {
+                FFmpegKit.executeAsync(command) { session ->
+                    runOnUiThread {
+                        if (ReturnCode.isSuccess(session.returnCode)) {
+                            Log.d("EditSuccess", "Video edited successfully!")
+                            Toast.makeText(this@VideoEditingActivity, "Video edited successfully!", Toast.LENGTH_SHORT).show()
+                            videoUri = Uri.parse(outputPath) // Update video URI to the trimmed video
+                            refreshPlayer() // Refresh player with new video
+                            refreshUI() // Update UI components
+                        } else {
+                            Log.e("TrimError", "Error trimming video: ${session.returnCode}")
+                            Toast.makeText(this@VideoEditingActivity, "Error trimming video: ${session.returnCode}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e("excuteFFmpegCommandError", "Exception during FFmpeg execution: ${e.message}")
             }
         }
     }
