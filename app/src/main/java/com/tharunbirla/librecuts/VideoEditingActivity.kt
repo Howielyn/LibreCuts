@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.airbnb.lottie.LottieAnimationView
 import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.ReturnCode
 import com.google.android.exoplayer2.ExoPlayer
@@ -297,6 +298,7 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun textAction() {
+        FFmpegKitConfig.setFontDirectory(this@VideoEditingActivity, "/system/fonts", null)
         // Create the BottomSheetDialog
         val bottomSheetDialog = BottomSheetDialog(this)
 
@@ -307,7 +309,6 @@ class VideoEditingActivity : AppCompatActivity() {
         val etTextInput = view.findViewById<TextInputEditText>(R.id.etTextInput)
         val fontSizeInput = view.findViewById<TextInputEditText>(R.id.fontSize)
         val spinnerTextPosition = view.findViewById<Spinner>(R.id.spinnerTextPosition)
-
         val btnDone = view.findViewById<Button>(R.id.btnDoneText)
 
         // Define position values for the spinner
@@ -317,6 +318,7 @@ class VideoEditingActivity : AppCompatActivity() {
             "Top Left",
             "Bottom Left",
             "Center Bottom",
+            "Center Top",
             "Center Align"
         )
 
@@ -331,19 +333,20 @@ class VideoEditingActivity : AppCompatActivity() {
             val fontSize = fontSizeInput.text.toString().toIntOrNull() ?: 16 // Default font size is 16 if invalid input
             val textPosition = spinnerTextPosition.selectedItem.toString()
 
-            // Determine the position string based on the selection
+            // Map the position string to FFmpeg position parameters (x and y coordinates)
             val positionString = when (textPosition) {
-                "Bottom Right" -> "POSITION_BOTTOM_RIGHT"
-                "Top Right" -> "POSITION_TOP_RIGHT"
-                "Top Left" -> "POSITION_TOP_LEFT"
-                "Bottom Left" -> "POSITION_BOTTOM_LEFT"
-                "Center Bottom" -> "POSITION_CENTER_BOTTOM"
-                "Center Align" -> "POSITION_CENTER_ALLIGN"
-                else -> "POSITION_CENTER_ALLIGN" // Default position
+                "Bottom Right" -> "x=w-tw:y=h-th"
+                "Top Right" -> "x=w-tw:y=0"
+                "Top Left" -> "x=0:y=0"
+                "Bottom Left" -> "x=0:y=h-th"
+                "Center Bottom" -> "x=(w-text_w)/2:y=h-th"
+                "Center Top" -> "x=(w-text_w)/2:y=0"
+                "Center Align" -> "x=(w-text_w)/2:y=(h-text_h)/2"
+                else -> "x=(w-text_w)/2:y=(h-text_h)/2"
             }
 
             // Show a toast with the entered data (for debugging purposes)
-            Toast.makeText(this, "Text: $text, Font Size: $fontSize, Position: $textPosition", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Text: $text, Font Size: $fontSize, Position: $positionString", Toast.LENGTH_SHORT).show()
 
             // Call function to add the text to the video
             addTextToVideo(text, fontSize, positionString)
