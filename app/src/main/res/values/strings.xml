@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LibreCuts</string>
+    <string name="app_name">LibreCuts (Beta)</string>
     <string name="add_video">Add Video</string>
     <string name="create_engaging_videos">Free. Open-Source. Limitless Creativity!</string>
     <string name="home">Home</string>
@@ -23,4 +23,6 @@
     <string name="keep_left_portion">Remove right</string>
     <string name="loading_tag">Buckle up! Your video is loading</string>
     <string name="done">Done</string>
+    <string name="please_wait">Please wait, your video is being processed.</string>
+    <string name="select_aspect_ratio">Select Aspect Ratio</string>
 </resources>

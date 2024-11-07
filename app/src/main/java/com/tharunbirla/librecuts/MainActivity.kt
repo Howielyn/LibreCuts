@@ -71,9 +71,7 @@ class MainActivity : AppCompatActivity() {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
                 checkPermissions(
                     Manifest.permission.POST_NOTIFICATIONS,
-                    Manifest.permission.READ_MEDIA_AUDIO,
-                    Manifest.permission.READ_MEDIA_VIDEO,
-                    Manifest.permission.READ_MEDIA_IMAGES
+                    Manifest.permission.READ_MEDIA_VIDEO
                 )
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
@@ -117,9 +115,7 @@ class MainActivity : AppCompatActivity() {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
                 arrayOf(
                     Manifest.permission.POST_NOTIFICATIONS,
-                    Manifest.permission.READ_MEDIA_AUDIO,
-                    Manifest.permission.READ_MEDIA_VIDEO,
-                    Manifest.permission.READ_MEDIA_IMAGES
+                    Manifest.permission.READ_MEDIA_VIDEO
                 )
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {

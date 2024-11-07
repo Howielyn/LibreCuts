@@ -13,9 +13,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.airbnb.lottie.LottieAnimationView
 import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.ReturnCode
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
@@ -31,8 +34,12 @@ import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.StyledPlayerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.slider.RangeSlider
+import com.google.android.material.textfield.TextInputEditText
 import com.tharunbirla.librecuts.customviews.CustomVideoSeeker
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -53,9 +60,22 @@ class VideoEditingActivity : AppCompatActivity() {
     private lateinit var loadingScreen: View
     private lateinit var lottieAnimationView: LottieAnimationView
 
+    private var activeFFmpegSessions = mutableListOf<FFmpegSession>()
+    private var isVideoLoaded = false
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_editing)
+
+        // Set fullscreen flags
+        window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                )
+
+        // Set loading and animation view
         loadingScreen = findViewById(R.id.loadingScreen)
         lottieAnimationView = findViewById(R.id.lottieAnimation)
         try {
@@ -81,9 +101,7 @@ class VideoEditingActivity : AppCompatActivity() {
         // Set up button click listeners
         findViewById<ImageButton>(R.id.btnHome).setOnClickListener { onBackPressedDispatcher.onBackPressed()}
         findViewById<ImageButton>(R.id.btnSave).setOnClickListener { saveAction() }
-        findViewById<ImageButton>(R.id.btnDel).setOnClickListener { deleteAction() }
         findViewById<ImageButton>(R.id.btnTrim).setOnClickListener { trimAction() }
-        findViewById<ImageButton>(R.id.btnOverlay).setOnClickListener { overlayAction() }
         findViewById<ImageButton>(R.id.btnText).setOnClickListener { textAction() }
         findViewById<ImageButton>(R.id.btnAudio).setOnClickListener { audioAction() }
         findViewById<ImageButton>(R.id.btnCrop).setOnClickListener { cropAction() }
@@ -103,6 +121,7 @@ class VideoEditingActivity : AppCompatActivity() {
         startActivityForResult(Intent.createChooser(intent, "Select Video"), PICK_VIDEO_REQUEST)
     }
 
+    @Deprecated("This method has been deprecated in favor of using the Activity Result API\n      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt\n      contracts for common intents available in\n      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for\n      testing, and allow receiving results in separate, testable classes independent from your\n      activity. Use\n      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}\n      with the appropriate {@link ActivityResultContract} and handling the result in the\n      {@link ActivityResultCallback#onActivityResult(Object) callback}.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -195,13 +214,15 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
 
+    @SuppressLint("InflateParams")
     private fun cropAction() {
         // Create BottomSheetDialog
         val bottomSheetDialog = BottomSheetDialog(this)
         val sheetView = layoutInflater.inflate(R.layout.crop_bottom_sheet_dialog, null)
 
         // Set title
-        sheetView.findViewById<TextView>(R.id.tvTitleCrop).text = "Select Aspect Ratio"
+        sheetView.findViewById<TextView>(R.id.tvTitleCrop).text =
+            getString(R.string.select_aspect_ratio)
 
         // Set button click listeners for aspect ratios
         sheetView.findViewById<FrameLayout>(R.id.frameAspectRatio1).setOnClickListener {
@@ -254,7 +275,7 @@ class VideoEditingActivity : AppCompatActivity() {
                     val cropCommand = when (aspectRatio) {
                         "16:9" -> "-vf \"crop=iw:iw*9/16\""
                         "9:16" -> "-vf \"crop=ih*9/16:ih\""
-                        "1:1" -> "-vf \"crop=ih:ih\""
+                        "1:1" -> "-vf \"crop=iw:iw\""
                         else -> return@launch
                     }
 
@@ -276,17 +297,89 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun textAction() {
-        TODO("Not yet implemented")
+        // Create the BottomSheetDialog
+        val bottomSheetDialog = BottomSheetDialog(this)
+
+        // Inflate the layout for the bottom sheet
+        val view = layoutInflater.inflate(R.layout.text_bottom_sheet_dialog, null)
+
+        // Initialize the EditText, Spinners, and Buttons from the inflated view
+        val etTextInput = view.findViewById<TextInputEditText>(R.id.etTextInput)
+        val fontSizeInput = view.findViewById<TextInputEditText>(R.id.fontSize)
+        val spinnerTextPosition = view.findViewById<Spinner>(R.id.spinnerTextPosition)
+
+        val btnDone = view.findViewById<Button>(R.id.btnDoneText)
+
+        // Define position values for the spinner
+        val positionOptions = arrayOf(
+            "Bottom Right",
+            "Top Right",
+            "Top Left",
+            "Bottom Left",
+            "Center Bottom",
+            "Center Align"
+        )
+
+        // Create an adapter to set the spinner data
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, positionOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerTextPosition.adapter = adapter
+
+        btnDone.setOnClickListener {
+            // Retrieve the text input, font size, and position selection
+            val text = etTextInput.text.toString()
+            val fontSize = fontSizeInput.text.toString().toIntOrNull() ?: 16 // Default font size is 16 if invalid input
+            val textPosition = spinnerTextPosition.selectedItem.toString()
+
+            // Determine the position string based on the selection
+            val positionString = when (textPosition) {
+                "Bottom Right" -> "POSITION_BOTTOM_RIGHT"
+                "Top Right" -> "POSITION_TOP_RIGHT"
+                "Top Left" -> "POSITION_TOP_LEFT"
+                "Bottom Left" -> "POSITION_BOTTOM_LEFT"
+                "Center Bottom" -> "POSITION_CENTER_BOTTOM"
+                "Center Align" -> "POSITION_CENTER_ALLIGN"
+                else -> "POSITION_CENTER_ALLIGN" // Default position
+            }
+
+            // Show a toast with the entered data (for debugging purposes)
+            Toast.makeText(this, "Text: $text, Font Size: $fontSize, Position: $textPosition", Toast.LENGTH_SHORT).show()
+
+            // Call function to add the text to the video
+            addTextToVideo(text, fontSize, positionString)
+
+            // Close the bottom sheet
+            bottomSheetDialog.dismiss()
+        }
+
+        // Set the view for the bottom sheet dialog
+        bottomSheetDialog.setContentView(view)
+
+        // Show the bottom sheet dialog
+        bottomSheetDialog.show()
     }
 
-    private fun overlayAction() {
-        TODO("Not yet implemented")
+    private fun addTextToVideo(text: String, fontSize: Int, position: String) {
+        lifecycleScope.launch {
+            val videoUri = videoUri // Assuming this is your video URI
+            val media = videoUri?.let { getVideoMetadata(this@VideoEditingActivity, it) }
+            val realFilePath = media?.uri.toString()
+
+            val outputDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!outputDir.exists()) {
+                outputDir.mkdirs() // Create output directory if it doesn't exist
+            }
+            val outputPath = File(outputDir, "video_with_text_${System.currentTimeMillis()}.mp4").absolutePath
+            Log.d("TextAction", "Output file path: $outputPath")
+
+            // FFmpeg command to overlay text on the video
+            val command = "-i \"$realFilePath\" -vf \"drawtext=text='$text':fontcolor=white:fontsize=$fontSize:$position\" -c:a copy \"$outputPath\""
+            Log.d("FFmpegCommand", "FFmpeg command: $command")
+            executeFFmpegCommand(command, outputPath)
+        }
     }
 
-    private fun deleteAction() {
-        // Placeholder for future implementation of delete/undo action
-    }
-
+    @SuppressLint("InflateParams")
     private fun trimAction() {
         val videoDuration = player.duration
 
@@ -359,26 +452,37 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun executeFFmpegCommand(command: String, outputPath: String) {
-        lifecycleScope.launch {
+        coroutineScope.launch {
             try {
-                FFmpegKit.executeAsync(command) { session ->
-                    runOnUiThread {
-                        if (ReturnCode.isSuccess(session.returnCode)) {
-                            Log.d("EditSuccess", "Video edited successfully!")
-                            Toast.makeText(this@VideoEditingActivity, "Video edited successfully!", Toast.LENGTH_SHORT).show()
-                            videoUri = Uri.parse(outputPath) // Update video URI to the trimmed video
-                            refreshPlayer() // Refresh player with new video
-                            refreshUI() // Update UI components
-                        } else {
-                            Log.e("TrimError", "Error trimming video: ${session.returnCode}")
-                            Toast.makeText(this@VideoEditingActivity, "Error trimming video: ${session.returnCode}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                // Cancel any ongoing FFmpeg operations
+                FFmpegKit.cancel()
+
+                val session = withContext(Dispatchers.IO) {
+                    FFmpegKit.execute(command)
                 }
+
+                activeFFmpegSessions.add(session)
+
+                if (ReturnCode.isSuccess(session.returnCode)) {
+                    videoUri = Uri.parse(outputPath)
+                    refreshPlayer()
+                    refreshUI()
+                } else {
+                    showError("Error processing video: ${session.returnCode}")
+                }
+
+                // Remove completed session
+                activeFFmpegSessions.remove(session)
+
             } catch (e: Exception) {
-                Log.e("excuteFFmpegCommandError", "Exception during FFmpeg execution: ${e.message}")
+                showError("Error executing command: ${e.message}")
             }
         }
+    }
+
+    private fun showError(error: String) {
+        Log.e("VideoEditingError", error)
+        Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshUI() {
@@ -419,69 +523,54 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun setupExoPlayer() {
-        videoUri = intent.getParcelableExtra("VIDEO_URI") // Retrieve the video URI from intent
+        videoUri = intent.getParcelableExtra("VIDEO_URI")
         if (videoUri != null) {
             player = ExoPlayer.Builder(this).build()
-            playerView.player = player // Bind player to the view
+            playerView.player = player
 
             val mediaItem = MediaItem.fromUri(videoUri!!)
-            player.setMediaItem(mediaItem) // Set media item for the player
-
-            // Show loading screen while preparing the video
+            player.setMediaItem(mediaItem)
             loadingScreen.visibility = View.VISIBLE
 
-            player.prepare() // Prepare the player for playback
-
-            // Get the actual file path from the URI
-            val videoFilePath = getFilePathFromUri(videoUri!!)
-            Log.d("Path","File path: $videoFilePath")
-            if (videoFilePath != null) {
-                tempInputFile = File(videoFilePath) // Set temporary input file to the real file path
-                videoFileName = File(videoFilePath).name // Store the file name
-
-                // Fetch video metadata asynchronously
-                lifecycleScope.launch {
-                    try {
-                        val media = getVideoMetadata(this@VideoEditingActivity, videoUri!!)
-                        Log.d("MetadataSuccess", "Media: $media")
-
-                        // Call to extract frames for display after loading
-                        extractVideoFrames() // Extract frames after metadata is fetched
-
-                    } catch (e: Exception) {
-                        Log.e("MetadataError", "Error fetching video metadata: ${e.message}")
-                        Toast.makeText(this@VideoEditingActivity, "Error fetching video metadata: ${e.message}", Toast.LENGTH_SHORT).show()
-                    } finally {
-//                        // Hide loading screen after 5 seconds
-//                        Handler(Looper.getMainLooper()).postDelayed({
-//                            loadingScreen.visibility = View.GONE
-//                        }, 500) // 5000 milliseconds = 5 seconds
-                    }
-                }
-            } else {
-                Log.e("VideoLoadError", "Error loading video")
-                Toast.makeText(this, "Error loading video", Toast.LENGTH_SHORT).show()
-                return
-            }
+            player.prepare()
 
             // Add listener for player events
             player.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) {
-                        customVideoSeeker.setVideoDuration(player.duration) // Set duration on seeker
+                        isVideoLoaded = true
+                        customVideoSeeker.setVideoDuration(player.duration)
+                        updateDurationDisplay(player.currentPosition.toInt(), player.duration.toInt())
                     }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) {
-                        val currentPosition = player.currentPosition.toInt()
-                        updateDurationDisplay(currentPosition, player.duration.toInt()) // Update displayed duration
+                    if (isPlaying && isVideoLoaded) {
+                        updateDurationDisplay(player.currentPosition.toInt(), player.duration.toInt())
                     }
                 }
             })
+
+            // Initialize video metadata and frames
+            initializeVideoData()
         } else {
-            Log.e("VideoLoadError", "Error loading video")
-            Toast.makeText(this, "Error loading video", Toast.LENGTH_SHORT).show()
+            showError("Error loading video")
+        }
+    }
+
+    private fun initializeVideoData() {
+        coroutineScope.launch {
+            try {
+                val videoFilePath = getFilePathFromUri(videoUri!!)
+                if (videoFilePath != null) {
+                    tempInputFile = File(videoFilePath)
+                    videoFileName = tempInputFile.name
+
+                    extractVideoFrames()
+                }
+            } catch (e: Exception) {
+                showError("Error initializing video: ${e.message}")
+            }
         }
     }
 
@@ -572,29 +661,33 @@ class VideoEditingActivity : AppCompatActivity() {
 
     @SuppressLint("SetTextI18n")
     private fun updateDurationDisplay(current: Int, total: Int) {
-        Log.d("VideoEditingActivity", "Current: $current, Total: $total")
+        if (!isVideoLoaded || total <= 0) return
 
-        // Format and display the current and total duration
-        val currentFormatted = String.format(Locale.getDefault(),"%02d:%02d", current / 60000, (current / 1000) % 60)
-        val totalFormatted = String.format(Locale.getDefault(),"%02d:%02d", total / 60000, (total / 1000) % 60)
+        val currentFormatted = formatDuration(current)
+        val totalFormatted = formatDuration(total)
 
-        Log.d("DurationDisplay", "Current: $currentFormatted / Total: $totalFormatted")
+        tvDuration.text = "$currentFormatted / $totalFormatted"
+    }
 
-        tvDuration.text = "$currentFormatted / $totalFormatted" // Update duration text view
+    private fun formatDuration(milliseconds: Int): String {
+        val minutes = milliseconds / 60000
+        val seconds = (milliseconds % 60000) / 1000
+        return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        player.release() // Release player resources on destruction
+        // Cancel all active FFmpeg sessions
+        activeFFmpegSessions.forEach { session ->
+            FFmpegKit.cancel(session.sessionId)
+        }
+        activeFFmpegSessions.clear()
+
+        // Release resources
+        player.release()
+        coroutineScope.cancel()
     }
 
-    /**
-     * Fetch video metadata based on URI.
-     *
-     * @param context The context to access content resolver
-     * @param uri The URI of the video
-     * @return Media object containing metadata
-     */
     private suspend fun getVideoMetadata(context: Context, uri: Uri): Media {
         return withContext(Dispatchers.IO) {
             val contentUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
