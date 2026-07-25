@@ -116,7 +116,7 @@ sealed class EditOperation : Serializable {
         fun hasCustomPosition(): Boolean = relativeX != null && relativeY != null
     }
     
-    enum class MaskShape { NONE, SPLIT, SHUTTER, ELLIPSE, RECTANGLE }
+    enum class MaskShape { NONE, SPLIT, SHUTTER, ELLIPSE, RECTANGLE, HEART, STAR }
     
     data class MaskConfig(
         val shape: MaskShape = MaskShape.NONE,
@@ -125,8 +125,100 @@ sealed class EditOperation : Serializable {
         val relativeWidth: Float = 0.5f,
         val relativeHeight: Float = 0.5f,
         val rotationAngle: Float = 0f,
-        val isInverted: Boolean = false
-    ) : Serializable
+        val isInverted: Boolean = false,
+        val feather: Float = 0f,
+        val positionKeyframes: List<KeyframePoint> = emptyList(),
+        val sizeKeyframes: List<KeyframePoint> = emptyList(),
+        val rotationKeyframes: List<KeyframePoint> = emptyList(),
+        val featherKeyframes: List<KeyframePoint> = emptyList()
+    ) : Serializable {
+        fun getInterpolatedPos(timeMs: Long): Pair<Float, Float> {
+            if (positionKeyframes.isEmpty()) return Pair(relativeX, relativeY)
+            val sorted = positionKeyframes.sortedBy { it.timeMs }
+            if (timeMs <= sorted.first().timeMs) return Pair(sorted.first().valueX, sorted.first().valueY)
+            if (timeMs >= sorted.last().timeMs) return Pair(sorted.last().valueX, sorted.last().valueY)
+            for (i in 0 until sorted.size - 1) {
+                val k1 = sorted[i]
+                val k2 = sorted[i + 1]
+                if (timeMs >= k1.timeMs && timeMs <= k2.timeMs) {
+                    val progress = (timeMs - k1.timeMs).toFloat() / (k2.timeMs - k1.timeMs)
+                    return Pair(
+                        k1.valueX + progress * (k2.valueX - k1.valueX),
+                        k1.valueY + progress * (k2.valueY - k1.valueY)
+                    )
+                }
+            }
+            return Pair(relativeX, relativeY)
+        }
+
+        fun getInterpolatedSize(timeMs: Long): Float {
+            val defaultScale = ((relativeWidth + relativeHeight) / 2f * 200f).coerceIn(10f, 200f)
+            if (sizeKeyframes.isEmpty()) return defaultScale
+            val sorted = sizeKeyframes.sortedBy { it.timeMs }
+            if (timeMs <= sorted.first().timeMs) return sorted.first().valueX
+            if (timeMs >= sorted.last().timeMs) return sorted.last().valueX
+            for (i in 0 until sorted.size - 1) {
+                val k1 = sorted[i]
+                val k2 = sorted[i + 1]
+                if (timeMs >= k1.timeMs && timeMs <= k2.timeMs) {
+                    val progress = (timeMs - k1.timeMs).toFloat() / (k2.timeMs - k1.timeMs)
+                    return k1.valueX + progress * (k2.valueX - k1.valueX)
+                }
+            }
+            return defaultScale
+        }
+
+        fun getInterpolatedRotation(timeMs: Long): Float {
+            if (rotationKeyframes.isEmpty()) return rotationAngle
+            val sorted = rotationKeyframes.sortedBy { it.timeMs }
+            if (timeMs <= sorted.first().timeMs) return sorted.first().valueX
+            if (timeMs >= sorted.last().timeMs) return sorted.last().valueX
+            for (i in 0 until sorted.size - 1) {
+                val k1 = sorted[i]
+                val k2 = sorted[i + 1]
+                if (timeMs >= k1.timeMs && timeMs <= k2.timeMs) {
+                    val progress = (timeMs - k1.timeMs).toFloat() / (k2.timeMs - k1.timeMs)
+                    return k1.valueX + progress * (k2.valueX - k1.valueX)
+                }
+            }
+            return rotationAngle
+        }
+
+        fun getInterpolatedFeather(timeMs: Long): Float {
+            if (featherKeyframes.isEmpty()) return feather
+            val sorted = featherKeyframes.sortedBy { it.timeMs }
+            if (timeMs <= sorted.first().timeMs) return sorted.first().valueX
+            if (timeMs >= sorted.last().timeMs) return sorted.last().valueX
+            for (i in 0 until sorted.size - 1) {
+                val k1 = sorted[i]
+                val k2 = sorted[i + 1]
+                if (timeMs >= k1.timeMs && timeMs <= k2.timeMs) {
+                    val progress = (timeMs - k1.timeMs).toFloat() / (k2.timeMs - k1.timeMs)
+                    return k1.valueX + progress * (k2.valueX - k1.valueX)
+                }
+            }
+            return feather
+        }
+
+        fun evaluatedAt(timeMs: Long): MaskConfig {
+            if (positionKeyframes.isEmpty() && sizeKeyframes.isEmpty() && rotationKeyframes.isEmpty() && featherKeyframes.isEmpty()) {
+                return this
+            }
+            val pos = getInterpolatedPos(timeMs)
+            val sizePercent = getInterpolatedSize(timeMs)
+            val relScale = sizePercent / 200f
+            val rot = getInterpolatedRotation(timeMs)
+            val feath = getInterpolatedFeather(timeMs)
+            return copy(
+                relativeX = pos.first,
+                relativeY = pos.second,
+                relativeWidth = relScale,
+                relativeHeight = relScale,
+                rotationAngle = rot,
+                feather = feath
+            )
+        }
+    }
 
     
     data class MergeItem(

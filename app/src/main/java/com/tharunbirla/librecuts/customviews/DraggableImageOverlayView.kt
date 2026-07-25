@@ -35,6 +35,7 @@ class DraggableImageOverlayView @JvmOverloads constructor(
     // ── Public callbacks ──────────────────────────────────────────────────────
     var onImageCommitted: ((uri: Uri, relativeX: Float, relativeY: Float, relativeWidth: Float, relativeHeight: Float, rotationAngle: Float, opacity: Float, isMirrored: Boolean, maskConfig: com.tharunbirla.librecuts.models.EditOperation.MaskConfig) -> Unit)? = null
     var onPositionChanged: ((relativeX: Float, relativeY: Float) -> Unit)? = null
+    var onMaskChanged: ((com.tharunbirla.librecuts.models.EditOperation.MaskConfig) -> Unit)? = null
 
     // ── State ─────────────────────────────────────────────────────────────────
     private var isEditingActive = false
@@ -127,6 +128,7 @@ class DraggableImageOverlayView @JvmOverloads constructor(
                     relativeWidth = (maskConfig.relativeWidth * scaleFactor).coerceIn(0.01f, 5.0f),
                     relativeHeight = (maskConfig.relativeHeight * scaleFactor).coerceIn(0.01f, 5.0f)
                 )
+                onMaskChanged?.invoke(maskConfig)
                 invalidate()
                 return true
             }
@@ -495,6 +497,7 @@ class DraggableImageOverlayView @JvmOverloads constructor(
                                 relativeX = maskConfig.relativeX + dx / imageView.width,
                                 relativeY = maskConfig.relativeY + dy / imageView.height
                             )
+                            onMaskChanged?.invoke(maskConfig)
                         }
                         invalidate()
                         return true
@@ -685,7 +688,19 @@ class DraggableImageOverlayView @JvmOverloads constructor(
                 com.tharunbirla.librecuts.models.EditOperation.MaskShape.SHUTTER -> {
                     path.addRect(imageView.x - imageView.width, cy - mh/2, imageView.x + imageView.width * 2, cy + mh/2, android.graphics.Path.Direction.CW)
                 }
+                com.tharunbirla.librecuts.models.EditOperation.MaskShape.HEART -> {
+                    createHeartPath(path, cx, cy, mw, mh)
+                }
+                com.tharunbirla.librecuts.models.EditOperation.MaskShape.STAR -> {
+                    createStarPath(path, cx, cy, mw / 2f, mw / 4f)
+                }
                 else -> {}
+            }
+            
+            if (maskConfig.rotationAngle != 0f) {
+                val matrix = android.graphics.Matrix()
+                matrix.postRotate(maskConfig.rotationAngle, cx, cy)
+                path.transform(matrix)
             }
             
             if (maskConfig.isInverted) {
@@ -770,6 +785,10 @@ class DraggableImageOverlayView @JvmOverloads constructor(
                 val mw = imageView.width * maskConfig.relativeWidth
                 val mh = imageView.height * maskConfig.relativeHeight
                 
+                if (maskConfig.rotationAngle != 0f) {
+                    canvas.rotate(maskConfig.rotationAngle, cx, cy)
+                }
+                
                 val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.parseColor("#00E5FF")
                     style = Paint.Style.STROKE
@@ -789,6 +808,16 @@ class DraggableImageOverlayView @JvmOverloads constructor(
                     com.tharunbirla.librecuts.models.EditOperation.MaskShape.SHUTTER -> {
                         canvas.drawLine(imageView.x - 100f, cy - mh/2, imageView.x + imageView.width + 100f, cy - mh/2, maskPaint)
                         canvas.drawLine(imageView.x - 100f, cy + mh/2, imageView.x + imageView.width + 100f, cy + mh/2, maskPaint)
+                    }
+                    com.tharunbirla.librecuts.models.EditOperation.MaskShape.HEART -> {
+                        val path = android.graphics.Path()
+                        createHeartPath(path, cx, cy, mw, mh)
+                        canvas.drawPath(path, maskPaint)
+                    }
+                    com.tharunbirla.librecuts.models.EditOperation.MaskShape.STAR -> {
+                        val path = android.graphics.Path()
+                        createStarPath(path, cx, cy, mw / 2f, mw / 4f)
+                        canvas.drawPath(path, maskPaint)
                     }
                     else -> {}
                 }
@@ -819,5 +848,36 @@ class DraggableImageOverlayView @JvmOverloads constructor(
         opacity = op
         isMirrored = mir
         updateImageViewSizeAndPosition()
+    }
+
+    private fun createHeartPath(path: android.graphics.Path, cx: Float, cy: Float, width: Float, height: Float) {
+        path.reset()
+        val topCurveHeight = height * 0.3f
+        path.moveTo(cx, cy + height * 0.4f)
+        path.cubicTo(
+            cx - width * 0.5f, cy + height * 0.1f,
+            cx - width * 0.5f, cy - topCurveHeight,
+            cx, cy - topCurveHeight * 0.4f
+        )
+        path.cubicTo(
+            cx + width * 0.5f, cy - topCurveHeight,
+            cx + width * 0.5f, cy + height * 0.1f,
+            cx, cy + height * 0.4f
+        )
+        path.close()
+    }
+
+    private fun createStarPath(path: android.graphics.Path, cx: Float, cy: Float, radiusOuter: Float, radiusInner: Float) {
+        path.reset()
+        val points = 5
+        val angle = Math.PI / points
+        for (i in 0 until 2 * points) {
+            val r = if (i % 2 == 0) radiusOuter else radiusInner
+            val currAngle = i * angle - Math.PI / 2
+            val x = (cx + r * Math.cos(currAngle)).toFloat()
+            val y = (cy + r * Math.sin(currAngle)).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
     }
 }
