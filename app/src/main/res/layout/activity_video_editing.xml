@@ -27,10 +27,10 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_close_24"
+                android:src="@drawable/ic_back_24"
                 android:padding="8dp"
                 android:scaleType="fitCenter"
-                android:contentDescription="Close"
+                android:contentDescription="Back"
                 app:tint="@color/textColor" />
 
             <!-- Hidden duplicate btnHome kept for backwards binary compatibility -->

@@ -484,36 +484,11 @@ class VideoEditingActivity : AppCompatActivity() {
 
         playerContainer.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
-                if (primaryVideoAspectRatio > 0f) {
-                    val containerWidth = playerContainer.width
-                    val containerHeight = playerContainer.height
-                    if (containerWidth > 0 && containerHeight > 0) {
-                        val containerRatio = containerWidth.toFloat() / containerHeight.toFloat()
-                        var finalWidth = containerWidth
-                        var finalHeight = containerHeight
-                        
-                        if (primaryVideoAspectRatio > containerRatio) {
-                            // Video is wider than container
-                            finalHeight = (containerWidth / primaryVideoAspectRatio).toInt()
-                        } else {
-                            // Video is taller than container
-                            finalWidth = (containerHeight * primaryVideoAspectRatio).toInt()
-                        }
-                        
-                        val lp = canvasContainer.layoutParams
-                        if (lp.width != finalWidth || lp.height != finalHeight) {
-                            lp.width = finalWidth
-                            lp.height = finalHeight
-                            canvasContainer.layoutParams = lp
-                            
-                            // Also update overlays to use this fixed size
-                            textOverlayView?.setVideoSize(finalWidth, finalHeight)
-                            draggableTextOverlay?.setVideoSize(finalWidth, finalHeight)
-                            imageOverlayView?.setVideoSize(finalWidth, finalHeight)
-                            draggableImageOverlay?.setVideoSize(finalWidth, finalHeight)
-                            cropOverlayView?.setVideoSize(finalWidth, finalHeight)
-                        }
-                    }
+                val cropOps = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Crop>()
+                if (cropOps != null && cropOps.isNotEmpty() && cropEditingToolbar?.visibility != View.VISIBLE) {
+                    applyCropPreview(cropOps.last().aspectRatio)
+                } else {
+                    resetCropPreview()
                 }
             }
         })
@@ -1938,59 +1913,30 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun applyCropPreview(aspectRatio: String) {
-        if (aspectRatio == "Custom" && cropEditingToolbar?.visibility == View.VISIBLE) {
+        val cropEditingActive = cropEditingToolbar?.visibility == View.VISIBLE
+
+        if (cropEditingActive) {
             resetCropPreview()
             return
         }
 
-        val format = if (::player.isInitialized) player.videoFormat else null
-        val rotation = format?.rotationDegrees ?: 0
-        val videoWidth = if (rotation == 90 || rotation == 270) format?.height ?: 1 else format?.width ?: 1
-        val videoHeight = if (rotation == 90 || rotation == 270) format?.width ?: 1 else format?.height ?: 1
-
+        val canvasContainer = findViewById<FrameLayout>(R.id.canvasContainer) ?: return
         val cropOp = viewModel.project.value?.operations
             ?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Crop>()
             ?.lastOrNull()
 
-        // Get coordinates depending on aspect ratio
-        val xFrac: Float
-        val yFrac: Float
-        val wFrac: Float
-        val hFrac: Float
-        
-        when (aspectRatio) {
-            "16:9" -> {
-                val bounds = getPresetCropBounds("16:9")
-                xFrac = bounds.left
-                yFrac = bounds.top
-                wFrac = bounds.width()
-                hFrac = bounds.height()
-            }
-            "9:16" -> {
-                val bounds = getPresetCropBounds("9:16")
-                xFrac = bounds.left
-                yFrac = bounds.top
-                wFrac = bounds.width()
-                hFrac = bounds.height()
-            }
-            "1:1" -> {
-                val bounds = getPresetCropBounds("1:1")
-                xFrac = bounds.left
-                yFrac = bounds.top
-                wFrac = bounds.width()
-                hFrac = bounds.height()
-            }
+        val bounds = when (aspectRatio) {
+            "16:9", "9:16", "1:1" -> getPresetCropBounds(aspectRatio)
             "Custom" -> {
                 if (cropOp != null) {
-                    xFrac = cropOp.xFraction
-                    yFrac = cropOp.yFraction
-                    wFrac = cropOp.wFraction
-                    hFrac = cropOp.hFraction
+                    android.graphics.RectF(
+                        cropOp.xFraction,
+                        cropOp.yFraction,
+                        cropOp.xFraction + cropOp.wFraction,
+                        cropOp.yFraction + cropOp.hFraction
+                    )
                 } else {
-                    xFrac = 0f
-                    yFrac = 0f
-                    wFrac = 1f
-                    hFrac = 1f
+                    android.graphics.RectF(0f, 0f, 1f, 1f)
                 }
             }
             else -> {
@@ -1999,66 +1945,116 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         }
 
-        playerView.post {
+        val xFrac = bounds.left.coerceIn(0f, 1f)
+        val yFrac = bounds.top.coerceIn(0f, 1f)
+        val wFrac = bounds.width().coerceIn(0.001f, 1f)
+        val hFrac = bounds.height().coerceIn(0.001f, 1f)
+
+        playerContainer.post {
             val containerWidth = playerContainer.width.toFloat()
             val containerHeight = playerContainer.height.toFloat()
-            if (containerWidth <= 0 || containerHeight <= 0) return@post
+            if (containerWidth <= 0f || containerHeight <= 0f) return@post
 
-            val containerRatio = containerWidth / containerHeight
-            val targetRatio = (videoWidth.toFloat() * wFrac) / (videoHeight.toFloat() * hFrac)
-
-            // 1. Calculate fitted crop window dimensions inside container
-            val fitWidth: Float
-            val fitHeight: Float
-            if (targetRatio > containerRatio) {
-                fitWidth = containerWidth
-                fitHeight = containerWidth / targetRatio
-            } else {
-                fitWidth = containerHeight * targetRatio
-                fitHeight = containerHeight
+            val baseVideoRatio = if (primaryVideoAspectRatio > 0f) primaryVideoAspectRatio else {
+                val format = if (::player.isInitialized) player.videoFormat else null
+                if (format != null && format.width > 0 && format.height > 0) {
+                    val rot = format.rotationDegrees
+                    val vw = if (rot == 90 || rot == 270) format.height else format.width
+                    val vh = if (rot == 90 || rot == 270) format.width else format.height
+                    vw.toFloat() / vh.toFloat()
+                } else 16f / 9f
             }
 
-            // 2. Scale up full playerView size so that cropped fraction matches fitted dimensions
-            val fullWidth = if (wFrac > 0f) fitWidth / wFrac else fitWidth
-            val fullHeight = if (hFrac > 0f) fitHeight / hFrac else fitHeight
+            val croppedAspectRatio = (baseVideoRatio * wFrac) / hFrac
+            val containerRatio = containerWidth / containerHeight
 
-            val params = playerView.layoutParams as FrameLayout.LayoutParams
-            params.width = fullWidth.toInt()
-            params.height = fullHeight.toInt()
-            params.gravity = Gravity.CENTER
-            playerView.layoutParams = params
+            val canvasW: Float
+            val canvasH: Float
+            if (croppedAspectRatio > containerRatio) {
+                canvasW = containerWidth
+                canvasH = containerWidth / croppedAspectRatio
+            } else {
+                canvasW = containerHeight * croppedAspectRatio
+                canvasH = containerHeight
+            }
 
-            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // 1. Size canvasContainer to the cropped aspect ratio box
+            val canvasLp = canvasContainer.layoutParams as FrameLayout.LayoutParams
+            canvasLp.width = canvasW.toInt()
+            canvasLp.height = canvasH.toInt()
+            canvasLp.gravity = Gravity.CENTER
+            canvasContainer.layoutParams = canvasLp
 
-            // 3. Translate playerView so the crop window is centered inside the container
-            val transX = -fullWidth * (xFrac + wFrac / 2f - 0.5f)
-            val transY = -fullHeight * (yFrac + hFrac / 2f - 0.5f)
-            playerView.translationX = transX
-            playerView.translationY = transY
+            // Enable clipping on canvasContainer and mainVideoMaskContainer
+            canvasContainer.clipChildren = true
+            canvasContainer.clipToPadding = true
+            mainVideoMaskContainer?.clipChildren = true
+            mainVideoMaskContainer?.clipToPadding = true
 
-            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay, cropOverlayView)
+            // 2. Scale playerView so the crop box fills canvasContainer
+            val fullWidth = canvasW / wFrac
+            val fullHeight = canvasH / hFrac
+
+            val playerLp = playerView.layoutParams as FrameLayout.LayoutParams
+            playerLp.width = fullWidth.toInt()
+            playerLp.height = fullHeight.toInt()
+            playerLp.gravity = Gravity.TOP or Gravity.START
+            playerView.layoutParams = playerLp
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+
+            playerView.translationX = -fullWidth * xFrac
+            playerView.translationY = -fullHeight * yFrac
+
+            // 3. Overlays match the canvasContainer
+            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay)
             for (overlay in overlays) {
                 overlay?.let {
                     val overlayParams = it.layoutParams as FrameLayout.LayoutParams
-                    overlayParams.width = fullWidth.toInt()
-                    overlayParams.height = fullHeight.toInt()
+                    overlayParams.width = FrameLayout.LayoutParams.MATCH_PARENT
+                    overlayParams.height = FrameLayout.LayoutParams.MATCH_PARENT
                     overlayParams.gravity = Gravity.CENTER
                     it.layoutParams = overlayParams
-                    it.translationX = transX
-                    it.translationY = transY
+                    it.translationX = 0f
+                    it.translationY = 0f
                 }
             }
+
+            textOverlayView?.setVideoSize(canvasW.toInt(), canvasH.toInt())
+            draggableTextOverlay?.setVideoSize(canvasW.toInt(), canvasH.toInt())
+            imageOverlayView?.setVideoSize(canvasW.toInt(), canvasH.toInt())
+            draggableImageOverlay?.setVideoSize(canvasW.toInt(), canvasH.toInt())
         }
     }
 
     private fun resetCropPreview() {
-        playerView.post {
-            val params = playerView.layoutParams as FrameLayout.LayoutParams
-            params.width = FrameLayout.LayoutParams.MATCH_PARENT
-            params.height = FrameLayout.LayoutParams.MATCH_PARENT
-            params.gravity = Gravity.NO_GRAVITY
-            playerView.layoutParams = params
+        val canvasContainer = findViewById<FrameLayout>(R.id.canvasContainer) ?: return
+        playerContainer.post {
+            val containerWidth = playerContainer.width
+            val containerHeight = playerContainer.height
+            if (containerWidth <= 0 || containerHeight <= 0) return@post
 
+            val baseVideoRatio = if (primaryVideoAspectRatio > 0f) primaryVideoAspectRatio else 16f / 9f
+            val containerRatio = containerWidth.toFloat() / containerHeight.toFloat()
+            var finalWidth = containerWidth
+            var finalHeight = containerHeight
+
+            if (baseVideoRatio > containerRatio) {
+                finalHeight = (containerWidth / baseVideoRatio).toInt()
+            } else {
+                finalWidth = (containerHeight * baseVideoRatio).toInt()
+            }
+
+            val canvasLp = canvasContainer.layoutParams as FrameLayout.LayoutParams
+            canvasLp.width = finalWidth
+            canvasLp.height = finalHeight
+            canvasLp.gravity = Gravity.CENTER
+            canvasContainer.layoutParams = canvasLp
+
+            val playerLp = playerView.layoutParams as FrameLayout.LayoutParams
+            playerLp.width = FrameLayout.LayoutParams.MATCH_PARENT
+            playerLp.height = FrameLayout.LayoutParams.MATCH_PARENT
+            playerLp.gravity = Gravity.CENTER
+            playerView.layoutParams = playerLp
             playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             playerView.translationX = 0f
             playerView.translationY = 0f
@@ -2069,12 +2065,18 @@ class VideoEditingActivity : AppCompatActivity() {
                     val overlayParams = it.layoutParams as FrameLayout.LayoutParams
                     overlayParams.width = FrameLayout.LayoutParams.MATCH_PARENT
                     overlayParams.height = FrameLayout.LayoutParams.MATCH_PARENT
-                    overlayParams.gravity = Gravity.NO_GRAVITY
+                    overlayParams.gravity = Gravity.CENTER
                     it.layoutParams = overlayParams
                     it.translationX = 0f
                     it.translationY = 0f
                 }
             }
+
+            textOverlayView?.setVideoSize(finalWidth, finalHeight)
+            draggableTextOverlay?.setVideoSize(finalWidth, finalHeight)
+            imageOverlayView?.setVideoSize(finalWidth, finalHeight)
+            draggableImageOverlay?.setVideoSize(finalWidth, finalHeight)
+            cropOverlayView?.setVideoSize(finalWidth, finalHeight)
         }
     }
 
