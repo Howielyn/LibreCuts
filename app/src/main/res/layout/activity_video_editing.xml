@@ -170,6 +170,12 @@
                         app:surface_type="texture_view"
                         android:background="@android:color/transparent"
                         app:shutter_background_color="@android:color/transparent"/>
+
+                    <com.tharunbirla.librecuts.customviews.TransitionPreviewOverlayView
+                        android:id="@+id/transitionPreviewOverlayView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:visibility="gone"/>
                 </com.tharunbirla.librecuts.customviews.MaskedFrameLayout>
             </FrameLayout>
 

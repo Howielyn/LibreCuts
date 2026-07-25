@@ -356,7 +356,10 @@ class VideoEditingViewModel : ViewModel() {
                 if (current == null) return@update null
                 
                 val ops = current.operations.toMutableList()
-                ops.add(EditOperation.Transition(index, type))
+                ops.removeAll { it is EditOperation.Transition && it.index == index }
+                if (type.lowercase() != "none") {
+                    ops.add(EditOperation.Transition(index, type))
+                }
                 
                 _undoStack.value = _undoStack.value + current
                 _redoStack.value = emptyList()
@@ -738,6 +741,7 @@ class VideoEditingViewModel : ViewModel() {
                         it is EditOperation.Crop && updatedOp is EditOperation.Crop -> it.id == updatedOp.id
                         it is EditOperation.Trim && updatedOp is EditOperation.Trim -> it.id == updatedOp.id
                         it is EditOperation.CanvasBackground && updatedOp is EditOperation.CanvasBackground -> it.id == updatedOp.id
+                        it is EditOperation.Transition && updatedOp is EditOperation.Transition -> it.id == updatedOp.id || it.index == updatedOp.index
                         else -> false
                     }
                 }

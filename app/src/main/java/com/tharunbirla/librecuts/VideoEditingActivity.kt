@@ -118,6 +118,9 @@ class VideoEditingActivity : AppCompatActivity() {
 
     private var tvPreviewBadge: TextView? = null
     private var textOverlayView: com.tharunbirla.librecuts.customviews.TextOverlayView? = null
+    private var transitionPreviewOverlayView: com.tharunbirla.librecuts.customviews.TransitionPreviewOverlayView? = null
+    private var activeTransitionIndex: Int = -1
+    private var cachedTransitionBitmap: android.graphics.Bitmap? = null
 
     // ViewModel and Services
     private lateinit var viewModel: VideoEditingViewModel
@@ -480,6 +483,7 @@ class VideoEditingActivity : AppCompatActivity() {
         playerView = findViewById(R.id.playerView)
         playerContainer = findViewById(R.id.playerContainer)
         bgPreviewImageView = findViewById(R.id.bgPreviewImageView)
+        transitionPreviewOverlayView = findViewById(R.id.transitionPreviewOverlayView)
         val canvasContainer = findViewById<FrameLayout>(R.id.canvasContainer)
 
         playerContainer.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
@@ -4861,6 +4865,55 @@ class VideoEditingActivity : AppCompatActivity() {
             } else {
                 findTextureView(playerView)?.scaleX = if (isMirrored) -1f else 1f
             }
+
+            // Real-time transition preview overlay update
+            val transitionOps = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>() ?: emptyList()
+            var transitionActiveThisFrame = false
+
+            if (transitionOps.isNotEmpty() && sequenceItems.size > 1) {
+                var accumBoundaryMs = 0L
+                for (i in 0 until sequenceItems.size - 1) {
+                    accumBoundaryMs += sequenceItems[i].trimmedDurationMs
+                    val transOp = transitionOps.find { it.index == i }
+                    if (transOp != null && transOp.type.lowercase() != "none") {
+                        val windowMs = 1000L
+                        val halfWindow = windowMs / 2
+                        val transStart = accumBoundaryMs - halfWindow
+                        val transEnd = accumBoundaryMs + halfWindow
+
+                        if (currentGlobalPos in transStart..transEnd) {
+                            transitionActiveThisFrame = true
+                            val prog = (currentGlobalPos - transStart).toFloat() / windowMs.toFloat()
+
+                            if (activeTransitionIndex != i || cachedTransitionBitmap == null || cachedTransitionBitmap?.isRecycled == true) {
+                                activeTransitionIndex = i
+                                val textureView = findTextureView(playerView)
+                                if (textureView != null && textureView.width > 0 && textureView.height > 0) {
+                                    try {
+                                        cachedTransitionBitmap = textureView.getBitmap(textureView.width / 2, textureView.height / 2)
+                                    } catch (e: Exception) {
+                                        cachedTransitionBitmap = null
+                                    }
+                                }
+                            }
+
+                            transitionPreviewOverlayView?.visibility = View.VISIBLE
+                            transitionPreviewOverlayView?.updateTransition(transOp.type, prog, cachedTransitionBitmap)
+                            break
+                        }
+                    }
+                }
+            }
+
+            if (!transitionActiveThisFrame) {
+                if (activeTransitionIndex != -1) {
+                    activeTransitionIndex = -1
+                    cachedTransitionBitmap?.recycle()
+                    cachedTransitionBitmap = null
+                    transitionPreviewOverlayView?.clearSnapshot()
+                    transitionPreviewOverlayView?.visibility = View.GONE
+                }
+            }
         }
     }
 
@@ -5219,7 +5272,7 @@ class VideoEditingActivity : AppCompatActivity() {
                     videoSourceForChunk = if (clipStartUs < clipEndUs) {
                         val baseVideoSource = mediaSourceFactory.createMediaSource(videoMediaItem)
                         val clippedSource = com.google.android.exoplayer2.source.ClippingMediaSource(
-                            baseVideoSource, clipStartUs, clipEndUs, true, false, true
+                            baseVideoSource, clipStartUs, clipEndUs, false, false, true
                         )
                         if (isClipMuted) {
                             com.google.android.exoplayer2.source.FilteringMediaSource(
@@ -5269,7 +5322,7 @@ class VideoEditingActivity : AppCompatActivity() {
                             
                             try {
                                 val audioSlice = com.google.android.exoplayer2.source.ClippingMediaSource(
-                                    baseAudioSource, clipStartUs, safeClipEndUs, true, false, true
+                                    baseAudioSource, clipStartUs, safeClipEndUs, false, false, true
                                 )
                                 chunkSourcesToMerge.add(audioSlice)
                             } catch (e: Exception) {
@@ -5284,7 +5337,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
             }
             
-            val mergedChunk = com.google.android.exoplayer2.source.MergingMediaSource(true, true, *chunkSourcesToMerge.toTypedArray())
+            val mergedChunk = if (chunkSourcesToMerge.size == 1) {
+                chunkSourcesToMerge[0]
+            } else {
+                com.google.android.exoplayer2.source.MergingMediaSource(true, false, *chunkSourcesToMerge.toTypedArray())
+            }
             chunkedSources.add(mergedChunk)
             newChunkDurations.add(chunkDurationMs)
         }
@@ -5982,14 +6039,21 @@ class VideoEditingActivity : AppCompatActivity() {
         val transitions = listOf(
             Pair("none", "None"),
             Pair("fade", "Fade"),
+            Pair("fadeblack", "Fade Black"),
+            Pair("fadewhite", "Fade White"),
             Pair("dissolve", "Dissolve"),
             Pair("wipeleft", "Wipe L"),
             Pair("wiperight", "Wipe R"),
+            Pair("wipeup", "Wipe Up"),
+            Pair("wipedown", "Wipe Down"),
             Pair("slideleft", "Slide L"),
             Pair("slideright", "Slide R"),
+            Pair("slideup", "Slide Up"),
+            Pair("slidedown", "Slide Down"),
             Pair("coverleft", "Cover L"),
             Pair("coverright", "Cover R"),
             Pair("circlecrop", "Circle"),
+            Pair("rectcrop", "Box"),
             Pair("zoomin", "Zoom In"),
             Pair("pixelize", "Pixelize"),
             Pair("hlslice", "H-Slice"),
@@ -6049,9 +6113,9 @@ class VideoEditingActivity : AppCompatActivity() {
 
             if (startDrawable != null && endDrawable != null) {
                 if (type == "none") {
-                    ivPreview.visibility = View.GONE
-                    tvShort.visibility = View.VISIBLE
-                    tvShort.text = "✖"
+                    ivPreview.setImageDrawable(androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_close_24))
+                    ivPreview.visibility = View.VISIBLE
+                    tvShort.visibility = View.GONE
                 } else {
                     val animation = android.graphics.drawable.AnimationDrawable().apply {
                         isOneShot = false
