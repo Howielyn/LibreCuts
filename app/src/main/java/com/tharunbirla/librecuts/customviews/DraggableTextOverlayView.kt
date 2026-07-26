@@ -585,7 +585,7 @@ class DraggableTextOverlayView @JvmOverloads constructor(
     fun setProperties(rx: Float, ry: Float, op: Float) {
         relativeX = rx
         relativeY = ry
-        currentOpacity = op
+        setOpacity(op)
         post {
             positionEditTextFromRelative()
             invalidate()

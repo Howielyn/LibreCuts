@@ -845,7 +845,7 @@ class DraggableImageOverlayView @JvmOverloads constructor(
         relativeWidth = rw
         relativeHeight = rh
         rotationAngle = rot
-        opacity = op
+        setOpacity(op)
         isMirrored = mir
         updateImageViewSizeAndPosition()
     }
