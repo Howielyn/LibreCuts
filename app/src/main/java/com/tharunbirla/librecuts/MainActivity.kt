@@ -53,10 +53,16 @@ class MainActivity : AppCompatActivity() {
     private val openProjectLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
+                try {
+                    val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (e: Exception) {
+                    Log.e("ProjectSelection", "Could not take persistable permission for project URI", e)
+                }
                 Log.d("ProjectSelection", "Project selected: $uri")
                 val intent = Intent(this, ProjectImportActivity::class.java).apply {
                     putExtra("PROJECT_URI", uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 }
                 startActivity(intent)
             } else {
@@ -383,8 +389,24 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun selectVideo() {
-        Log.d("VideoSelection", "Launching video selector.")
-        selectVideoLauncher.launch(arrayOf("video/*"))
+        Log.d("VideoSelection", "Launching video picker.")
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
+            showCategoryTabs = false
+            onMediaSelectedListener = { uri ->
+                try {
+                    val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (e: Exception) {
+                    Log.d("VideoSelection", "Could not take persistable permission: ${e.message}")
+                }
+                navigateToEditingScreen(uri)
+            }
+            onBrowseSystemFoldersRequested = {
+                selectVideoLauncher.launch(arrayOf("video/*"))
+            }
+        }
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
     }
 
     private fun navigateToEditingScreen(videoUri: Uri) {

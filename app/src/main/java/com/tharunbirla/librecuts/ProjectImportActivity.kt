@@ -87,40 +87,70 @@ class ProjectImportActivity : AppCompatActivity() {
         val requiredDurationMs: Long = 0L
     )
 
-    private val pickMediaLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri != null) {
-                try {
-                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to take persistable permission", e)
-                }
-                
-                val depId = currentReplacingDependencyId
-                if (depId != null) {
-                    val dep = dependencies.find { it.id == depId }
-                    if (dep != null) {
-                        val uploadedDurationMs = getMediaDurationMs(uri)
-                        val requiredDurationMs = dep.requiredDurationMs
+    private fun handleSelectedUri(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to take persistable permission", e)
+        }
+        
+        val depId = currentReplacingDependencyId
+        if (depId != null) {
+            val dep = dependencies.find { it.id == depId }
+            if (dep != null) {
+                val uploadedDurationMs = getMediaDurationMs(uri)
+                val requiredDurationMs = dep.requiredDurationMs
 
-                        if (requiredDurationMs > 0L && uploadedDurationMs > 0L && (uploadedDurationMs + 300L) < requiredDurationMs) {
-                            val reqStr = formatDuration(requiredDurationMs)
-                            val upStr = formatDuration(uploadedDurationMs)
-                            Toast.makeText(
-                                this,
-                                "Clip duration ($upStr) is shorter than required ($reqStr). Please choose a clip at least $reqStr long.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        } else {
+                if (requiredDurationMs > 0L && uploadedDurationMs > 0L && (uploadedDurationMs + 1500L) < requiredDurationMs) {
+                    val reqStr = formatDuration(requiredDurationMs)
+                    val upStr = formatDuration(uploadedDurationMs)
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("Clip Duration Warning")
+                        .setMessage("Selected clip ($upStr) is shorter than required ($reqStr). Do you want to use it anyway?")
+                        .setPositiveButton("Use Anyway") { _, _ ->
                             dep.currentUri = uri
                             dep.isFound = true
                             updateUi()
                         }
-                    }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                } else {
+                    dep.currentUri = uri
+                    dep.isFound = true
+                    updateUi()
                 }
             }
-            currentReplacingDependencyId = null
         }
+        currentReplacingDependencyId = null
+    }
+
+    private val pickMediaLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri != null) {
+                handleSelectedUri(uri)
+            }
+        }
+
+    private fun replaceMedia(dep: MediaDependency, vararg mimeTypes: String) {
+        currentReplacingDependencyId = dep.id
+        val targetType = when (dep.type) {
+            DependencyType.AUDIO -> com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.AUDIO
+            DependencyType.OVERLAY -> com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.IMAGE
+            else -> com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
+        }
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = targetType
+            showCategoryTabs = false
+            onMediaSelectedListener = { uri ->
+                handleSelectedUri(uri)
+            }
+            onBrowseSystemFoldersRequested = {
+                val types = if (mimeTypes.isNotEmpty()) Array(mimeTypes.size) { mimeTypes[it] } else arrayOf("*/*")
+                pickMediaLauncher.launch(types)
+            }
+        }
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -171,6 +201,15 @@ class ProjectImportActivity : AppCompatActivity() {
             Toast.makeText(this, "No project URI provided", Toast.LENGTH_SHORT).show()
             finish()
             return
+        }
+
+        try {
+            contentResolver.takePersistableUriPermission(
+                projectUri!!,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (e: Exception) {
+            Log.d(TAG, "Could not take persistable URI permission for projectUri: ${e.message}")
         }
 
         loadRecipe()
@@ -382,11 +421,6 @@ class ProjectImportActivity : AppCompatActivity() {
         }
     }
 
-    private fun replaceMedia(dep: MediaDependency, vararg mimeTypes: String) {
-        currentReplacingDependencyId = dep.id
-        pickMediaLauncher.launch(arrayOf(*mimeTypes))
-    }
-
     private fun updateUi() {
         val totalCount = dependencies.size
         val foundTotal = dependencies.count { it.isFound }
@@ -444,10 +478,18 @@ class ProjectImportActivity : AppCompatActivity() {
 
             val newOps = recipe.operations.map { op ->
                 when (op) {
+                    is EditOperation.SpeedMain -> {
+                        if (op.proxyUri != null && !checkUriExists(op.proxyUri)) op.copy(proxyUri = null) else op
+                    }
+                    is EditOperation.ReverseMain -> {
+                        if (op.proxyUri != null && !checkUriExists(op.proxyUri)) op.copy(proxyUri = null) else op
+                    }
                     is EditOperation.Merge -> {
                         val newItems = op.items.mapIndexed { index, item ->
                             val dep = dependencies.find { it.operationId == op.id && it.mergeIndex == index }
-                            if (dep != null && dep.currentUri != null) item.copy(uri = dep.currentUri!!) else item
+                            val newUri = if (dep != null && dep.currentUri != null) dep.currentUri!! else item.uri
+                            val newProxy = if (item.proxyUri != null && !checkUriExists(item.proxyUri)) null else item.proxyUri
+                            item.copy(uri = newUri, proxyUri = newProxy)
                         }
                         op.copy(items = newItems)
                     }
@@ -472,8 +514,15 @@ class ProjectImportActivity : AppCompatActivity() {
 
             try {
                 val json = ProjectSerializer.serialize(updatedRecipe)
-                contentResolver.openOutputStream(projectUri!!, "wt")?.use { out ->
-                    out.write(json.toByteArray())
+                if (json.isNotBlank() && json.startsWith("{")) {
+                    val tempFile = File.createTempFile("project_save_", ".tmp", cacheDir)
+                    tempFile.writeText(json)
+                    contentResolver.openOutputStream(projectUri!!, "wt")?.use { out ->
+                        tempFile.inputStream().use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                    tempFile.delete()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save updated project", e)

@@ -2649,20 +2649,31 @@ class VideoEditingActivity : AppCompatActivity() {
 
 
     private fun openImagePicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
-            addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        try {
-            startActivityForResult(Intent.createChooser(intent, "Select Image, GIF, or Video Overlay"), PICK_IMAGE_REQUEST)
-        } catch (e: android.content.ActivityNotFoundException) {
-            try {
-                startActivityForResult(intent, PICK_IMAGE_REQUEST)
-            } catch (e2: android.content.ActivityNotFoundException) {
-                Toast.makeText(this, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.IMAGE
+            showCategoryTabs = true
+            showAudioTab = false
+            onMediaSelectedListener = { uri ->
+                showImageOverlayConfig(uri)
+            }
+            onBrowseSystemFoldersRequested = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Select Image, GIF, or Video Overlay"), PICK_IMAGE_REQUEST)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    try {
+                        startActivityForResult(intent, PICK_IMAGE_REQUEST)
+                    } catch (e2: android.content.ActivityNotFoundException) {
+                        Toast.makeText(this@VideoEditingActivity, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
     }
 
     private fun showImageOverlayConfig(imageUri: Uri) {
@@ -3789,74 +3800,124 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun openFilePickerMerge() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "video/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
+            showCategoryTabs = false
+            onMediaSelectedListener = { uri ->
+                processMergeVideoUris(listOf(uri))
+            }
+            onBrowseSystemFoldersRequested = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "video/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Select Video"), PICK_VIDEO_REQUEST)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    try {
+                        startActivityForResult(intent, PICK_VIDEO_REQUEST)
+                    } catch (e2: android.content.ActivityNotFoundException) {
+                        Toast.makeText(this@VideoEditingActivity, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
-        try {
-            startActivityForResult(Intent.createChooser(intent, "Select Video"), PICK_VIDEO_REQUEST)
-        } catch (e: android.content.ActivityNotFoundException) {
-            try {
-                startActivityForResult(intent, PICK_VIDEO_REQUEST)
-            } catch (e2: android.content.ActivityNotFoundException) {
-                Toast.makeText(this, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
+    }
+
+    private fun processMergeVideoUris(selectedVideoUris: List<Uri>) {
+        if (selectedVideoUris.isEmpty()) return
+        lifecycleScope.launch {
+            val mergeItems = withContext(Dispatchers.IO) {
+                selectedVideoUris.mapNotNull { uri ->
+                    val tempFile = copyContentUriToTempFile(uri, "merge_video", ".mp4")
+                    if (tempFile != null) {
+                        val tempUri = Uri.fromFile(tempFile)
+                        val duration = try {
+                            val retriever = MediaMetadataRetriever()
+                            try {
+                                retriever.setDataSource(tempFile.absolutePath)
+                                val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                durStr?.toLong() ?: 0L
+                            } finally {
+                                retriever.release()
+                            }
+                        } catch (e: Exception) {
+                            0L
+                        }
+                        com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, duration)
+                    } else null
+                }
+            }
+            if (mergeItems.isNotEmpty()) {
+                isImportLoading = true
+                showLoading("Importing video...")
+                viewModel.addMergeOperation(mergeItems)
+                Toast.makeText(this@VideoEditingActivity, "${mergeItems.size} video(s) added to sequence", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@VideoEditingActivity, R.string.toast_failed_to_load_selected_video, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun openFilePickerMain() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "video/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
-        }
+    private fun handleMainSelectedVideo(uri: Uri) {
         try {
-            mainFilePickerLauncher.launch(Intent.createChooser(intent, "Select Video"))
-        } catch (e: android.content.ActivityNotFoundException) {
-            try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to take persistable permission", e)
+        }
+        emptyProjectState.visibility = View.GONE
+        setEditingButtonsEnabled(true)
+        playerContainer.visibility = View.VISIBLE
+        timelineContainer.visibility = View.VISIBLE
+        findViewById<View>(R.id.seekerContainer).visibility = View.VISIBLE
+        findViewById<View>(R.id.editingControlsScroll).visibility = View.VISIBLE
+        
+        // Restore timeline children visibility
+        findViewById<View>(R.id.timelineHorizontalScroll)?.visibility = View.VISIBLE
+        findViewById<View>(R.id.btnTimelineAdd)?.visibility = View.VISIBLE
+        findViewById<View>(R.id.customVideoSeeker)?.visibility = View.VISIBLE
+        
+        showLoading(getString(R.string.loading), getString(R.string.loading_tag))
+        isImportLoading = true
+        isVideoLoaded = false
+        videoUri = uri
+        
+        lifecycleScope.launch {
+            val projectSourcePath = getFilePathFromUri(uri)
+            if (projectSourcePath != null) {
+                tempInputFile = File(projectSourcePath)
+                videoFileName = tempInputFile.name
+            }
+            
+            viewModel.initializeProject(uri, videoFileName)
+            initializeVideoData()
+        }
+    }
+
+    private fun openFilePickerMain() {
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
+            showCategoryTabs = false
+            onMediaSelectedListener = { uri ->
+                handleMainSelectedVideo(uri)
+            }
+            onBrowseSystemFoldersRequested = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "video/*"
+                }
                 mainFilePickerLauncher.launch(intent)
-            } catch (e2: android.content.ActivityNotFoundException) {
-                Toast.makeText(this, "No app found to handle this action", Toast.LENGTH_SHORT).show()
             }
         }
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
     }
 
     private val mainFilePickerLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
-                try {
-                    contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to take persistable permission", e)
-                }
-                emptyProjectState.visibility = View.GONE
-                setEditingButtonsEnabled(true)
-                playerContainer.visibility = View.VISIBLE
-                timelineContainer.visibility = View.VISIBLE
-                findViewById<View>(R.id.seekerContainer).visibility = View.VISIBLE
-                findViewById<View>(R.id.editingControlsScroll).visibility = View.VISIBLE
-                
-                // Restore timeline children visibility
-                findViewById<View>(R.id.timelineHorizontalScroll)?.visibility = View.VISIBLE
-                findViewById<View>(R.id.btnTimelineAdd)?.visibility = View.VISIBLE
-                findViewById<View>(R.id.customVideoSeeker)?.visibility = View.VISIBLE
-                
-                showLoading(getString(R.string.loading), getString(R.string.loading_tag))
-                isImportLoading = true
-                isVideoLoaded = false
-                videoUri = uri
-                
-                lifecycleScope.launch {
-                    val projectSourcePath = getFilePathFromUri(uri)
-                    if (projectSourcePath != null) {
-                        tempInputFile = File(projectSourcePath)
-                        videoFileName = tempInputFile.name
-                    }
-                    
-                    viewModel.initializeProject(uri, videoFileName)
-                    initializeVideoData()
-                }
+                handleMainSelectedVideo(uri)
             }
         }
     }
@@ -3875,71 +3936,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 } else {
                     it.data?.let { uri -> selectedVideoUris.add(uri) }
                 }
-                if (selectedVideoUris.isNotEmpty()) {
-                    // Copy content URIs to temp files so FFmpeg can access them, and fetch duration
-                    lifecycleScope.launch {
-                        val mergeItems = withContext(Dispatchers.IO) {
-                            selectedVideoUris.mapNotNull { uri ->
-                                val tempFile = copyContentUriToTempFile(uri, "merge_video", ".mp4")
-                                if (tempFile != null) {
-                                    val tempUri = Uri.fromFile(tempFile)
-                                    val duration = try {
-                                        val retriever = MediaMetadataRetriever()
-                                        try {
-                                            retriever.setDataSource(tempFile.absolutePath)
-                                            val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                            durStr?.toLong() ?: 0L
-                                        } finally {
-                                            retriever.release()
-                                        }
-                                    } catch (e: Exception) {
-                                        0L
-                                    }
-                                    com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, duration)
-                                } else null
-                            }
-                        }
-                        if (mergeItems.isNotEmpty()) {
-                            isImportLoading = true
-                            showLoading("Importing video...")
-                            viewModel.addMergeOperation(mergeItems)
-                            Toast.makeText(this@VideoEditingActivity, "${mergeItems.size} video(s) added to sequence", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(this@VideoEditingActivity, R.string.toast_failed_to_load_selected_video, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
+                processMergeVideoUris(selectedVideoUris)
             }
         } else if (requestCode == PICK_AUDIO_REQUEST && resultCode == Activity.RESULT_OK) {
             data?.data?.let { audioUri ->
-                lifecycleScope.launch {
-                    val tempFile = withContext(Dispatchers.IO) { copyContentUriToTempFile(audioUri, "audio", ".m4a") }
-                    if (tempFile != null) {
-                        val tempUri = Uri.fromFile(tempFile)
-                        val realDurationMs = withContext(Dispatchers.IO) {
-                            try {
-                                val r = android.media.MediaMetadataRetriever()
-                                r.setDataSource(this@VideoEditingActivity, tempUri)
-                                val d = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
-                                r.release()
-                                d
-                            } catch(e: Exception) { 0L }
-                        }
-                        val totalSeqDur = getTotalSequenceDuration()
-                        val endGlobalMs = if (realDurationMs > 0) minOf(totalSeqDur, realDurationMs) else totalSeqDur
-                        viewModel.addOperation(
-                            com.tharunbirla.librecuts.models.EditOperation.AddBackgroundAudio(
-                                audioUri = tempUri,
-                                internalStartMs = 0L,
-                                internalEndMs = realDurationMs,
-                                startTimeMs = 0L,
-                                endTimeMs = endGlobalMs,
-                                originalDurationMs = realDurationMs
-                            )
-                        )
-                        Toast.makeText(this@VideoEditingActivity, R.string.toast_audio_track_added, Toast.LENGTH_SHORT).show()
-                    }
-                }
+                processAudioSelected(audioUri)
             }
         } else if (requestCode == PICK_IMAGE_REQUEST && resultCode == Activity.RESULT_OK) {
             data?.data?.let { imageUri ->
@@ -4053,17 +4054,58 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun audioAction() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "audio/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
+        val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
+            initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.AUDIO
+            showCategoryTabs = false
+            onMediaSelectedListener = { uri ->
+                processAudioSelected(uri)
+            }
+            onBrowseSystemFoldersRequested = {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "audio/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Select Audio"), PICK_AUDIO_REQUEST)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    try {
+                        startActivityForResult(intent, PICK_AUDIO_REQUEST)
+                    } catch (e2: android.content.ActivityNotFoundException) {
+                        Toast.makeText(this@VideoEditingActivity, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
         }
-        try {
-            startActivityForResult(Intent.createChooser(intent, "Select Audio"), PICK_AUDIO_REQUEST)
-        } catch (e: android.content.ActivityNotFoundException) {
-            try {
-                startActivityForResult(intent, PICK_AUDIO_REQUEST)
-            } catch (e2: android.content.ActivityNotFoundException) {
-                Toast.makeText(this, "No app found to handle this action", Toast.LENGTH_SHORT).show()
+        picker.show(supportFragmentManager, "MediaPickerBottomSheet")
+    }
+
+    private fun processAudioSelected(audioUri: Uri) {
+        lifecycleScope.launch {
+            val tempFile = withContext(Dispatchers.IO) { copyContentUriToTempFile(audioUri, "audio", ".m4a") }
+            if (tempFile != null) {
+                val tempUri = Uri.fromFile(tempFile)
+                val realDurationMs = withContext(Dispatchers.IO) {
+                    try {
+                        val r = android.media.MediaMetadataRetriever()
+                        r.setDataSource(this@VideoEditingActivity, tempUri)
+                        val d = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+                        r.release()
+                        d
+                    } catch(e: Exception) { 0L }
+                }
+                val totalSeqDur = getTotalSequenceDuration()
+                val endGlobalMs = if (realDurationMs > 0) minOf(totalSeqDur, realDurationMs) else totalSeqDur
+                viewModel.addOperation(
+                    com.tharunbirla.librecuts.models.EditOperation.AddBackgroundAudio(
+                        audioUri = tempUri,
+                        internalStartMs = 0L,
+                        internalEndMs = realDurationMs,
+                        startTimeMs = 0L,
+                        endTimeMs = endGlobalMs,
+                        originalDurationMs = realDurationMs
+                    )
+                )
+                Toast.makeText(this@VideoEditingActivity, R.string.toast_audio_track_added, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -4481,6 +4523,15 @@ class VideoEditingActivity : AppCompatActivity() {
         val projectUri = intent.getParcelableExtra<Uri>("PROJECT_URI")
         if (projectUri != null) {
             try {
+                contentResolver.takePersistableUriPermission(
+                    projectUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                Log.d(TAG, "Could not take persistable URI permission for projectUri: ${e.message}")
+            }
+
+            try {
                 contentResolver.openInputStream(projectUri)?.use { inputStream ->
                     val json = inputStream.bufferedReader().use { it.readText() }
                     val editRecipe = com.tharunbirla.librecuts.utils.ProjectSerializer.deserialize(json)
@@ -4494,6 +4545,14 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         } else {
             videoUri = intent.getParcelableExtra("VIDEO_URI")
+        }
+
+        if (videoUri != null && videoUri?.scheme == "content") {
+            try {
+                contentResolver.takePersistableUriPermission(videoUri!!, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                Log.d(TAG, "Could not take persistable URI permission for videoUri: ${e.message}")
+            }
         }
         
         if (videoUri != null) {

@@ -100,10 +100,20 @@ object ProjectSerializer {
                 "AddSubtitles" -> EditOperation.AddSubtitles::class.java
                 "Adjust" -> EditOperation.Adjust::class.java
                 "CanvasBackground" -> EditOperation.CanvasBackground::class.java
-                else -> throw JsonParseException("Unknown EditOperation type: $type")
+                else -> null
+            }
+
+            if (clazz == null) {
+                android.util.Log.w("ProjectSerializer", "Skipping unknown or unsupported EditOperation type: $type")
+                return EditOperation.MuteAudio("skipped_unknown_$type")
             }
             
-            return baseGson.fromJson(jsonObject, clazz)
+            return try {
+                baseGson.fromJson(jsonObject, clazz)
+            } catch (e: Exception) {
+                android.util.Log.w("ProjectSerializer", "Failed to deserialize operation $type: ${e.message}")
+                EditOperation.MuteAudio("skipped_failed_$type")
+            }
         }
     }
 
@@ -117,6 +127,10 @@ object ProjectSerializer {
     }
     
     fun deserialize(json: String): EditRecipe {
-        return gson.fromJson(json, EditRecipe::class.java)
+        val recipe = gson.fromJson(json, EditRecipe::class.java)
+        val sanitizedOps = recipe.operations.filterNot { 
+            it is EditOperation.MuteAudio && (it.id.startsWith("skipped_unknown_") || it.id.startsWith("skipped_failed_"))
+        }
+        return recipe.copy(operations = sanitizedOps)
     }
 }
