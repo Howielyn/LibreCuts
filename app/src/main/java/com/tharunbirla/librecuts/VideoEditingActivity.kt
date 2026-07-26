@@ -284,6 +284,8 @@ class VideoEditingActivity : AppCompatActivity() {
         }
     }
 
+    private var shouldQuitAfterSave = false
+
     private val saveProjectLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
@@ -296,7 +298,12 @@ class VideoEditingActivity : AppCompatActivity() {
                     contentResolver.openOutputStream(uri)?.use { outputStream ->
                         outputStream.write(json.toByteArray())
                     }
+                    viewModel.markProjectSaved()
                     Toast.makeText(this, "Project saved successfully", Toast.LENGTH_SHORT).show()
+                    if (shouldQuitAfterSave) {
+                        shouldQuitAfterSave = false
+                        finish()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save project", e)
@@ -6881,13 +6888,22 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun showQuitConfirmationDialog() {
+        if (!viewModel.hasUnsavedEdits.value) {
+            finish()
+            return
+        }
+
         MaterialAlertDialogBuilder(this)
-            .setTitle("Quit Editing?")
-            .setMessage("Are you sure you want to quit? Any unsaved edits will be lost.")
-            .setPositiveButton("Quit") { _, _ ->
+            .setTitle("Unsaved Edits")
+            .setMessage("You have unsaved changes in your project sequence. Would you like to save before quitting?")
+            .setPositiveButton("Save & Quit") { _, _ ->
+                shouldQuitAfterSave = true
+                saveProjectLauncher.launch("project.lcprj")
+            }
+            .setNeutralButton("Discard & Quit") { _, _ ->
                 finish()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Keep Editing", null)
             .show()
     }
 

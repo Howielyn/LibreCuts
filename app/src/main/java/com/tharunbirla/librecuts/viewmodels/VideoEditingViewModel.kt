@@ -36,6 +36,8 @@ class VideoEditingViewModel : ViewModel() {
     private val _exportAudioOnly = MutableStateFlow(false)
     private val _selectedOperationId = MutableStateFlow<String?>(null)
 
+    private val _hasUnsavedEdits = MutableStateFlow(false)
+
     val project: StateFlow<VideoProject?> = _project.asStateFlow()
     val uiState: StateFlow<VideoEditingUiState> = _uiState.asStateFlow()
     val selectedOperationId: StateFlow<String?> = _selectedOperationId.asStateFlow()
@@ -44,6 +46,15 @@ class VideoEditingViewModel : ViewModel() {
     val exportResolution: StateFlow<Int> = _exportResolution.asStateFlow()
     val exportFps: StateFlow<Int> = _exportFps.asStateFlow()
     val exportAudioOnly: StateFlow<Boolean> = _exportAudioOnly.asStateFlow()
+    val hasUnsavedEdits: StateFlow<Boolean> = _hasUnsavedEdits.asStateFlow()
+
+    fun markProjectSaved() {
+        _hasUnsavedEdits.value = false
+    }
+
+    fun markHasUnsavedEdits() {
+        _hasUnsavedEdits.value = true
+    }
 
     fun setExportSettings(resolution: Int, fps: Int, audioOnly: Boolean) {
         _exportResolution.value = resolution
@@ -58,6 +69,7 @@ class VideoEditingViewModel : ViewModel() {
         _project.value = VideoProject(sourceUri = sourceUri, sourceName = sourceName)
         _undoStack.value = emptyList()
         _redoStack.value = emptyList()
+        _hasUnsavedEdits.value = false
         updateUiState { it.copy(canUndo = false) }
     }
 
@@ -65,6 +77,7 @@ class VideoEditingViewModel : ViewModel() {
         _project.value = project
         _undoStack.value = emptyList()
         _redoStack.value = emptyList()
+        _hasUnsavedEdits.value = false
         updateUiState { it.copy(canUndo = false, pendingOperationCount = project.getOperationCount()) }
     }
 
@@ -2432,5 +2445,8 @@ class VideoEditingViewModel : ViewModel() {
 
     private fun updateUiState(updater: (VideoEditingUiState) -> VideoEditingUiState) {
         _uiState.update(updater)
+        if (_undoStack.value.isNotEmpty()) {
+            _hasUnsavedEdits.value = true
+        }
     }
 }
