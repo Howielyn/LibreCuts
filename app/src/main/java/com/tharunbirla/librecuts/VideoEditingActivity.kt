@@ -145,7 +145,28 @@ class VideoEditingActivity : AppCompatActivity() {
     private var lastActiveClipIndexForBlur: Int = 0
     private var currentBlurJob: Job? = null
     
-    private val frameCache = mutableMapOf<Uri, List<Bitmap>>()
+    private val activeExtractionUris = mutableSetOf<Uri>()
+    private val frameExtractionSemaphore = kotlinx.coroutines.sync.Semaphore(2)
+    private val frameCache = object : android.util.LruCache<Uri, List<Bitmap>>(15) {
+        override fun entryRemoved(evicted: Boolean, key: Uri?, oldValue: List<Bitmap>?, newValue: List<Bitmap>?) {
+            super.entryRemoved(evicted, key, oldValue, newValue)
+            if (evicted && oldValue != null) {
+                for (bmp in oldValue) {
+                    if (!bmp.isRecycled) bmp.recycle()
+                }
+            }
+        }
+    }
+
+    private fun clearFrameCache() {
+        val snapshot = frameCache.snapshot()
+        frameCache.evictAll()
+        for (list in snapshot.values) {
+            for (bmp in list) {
+                if (!bmp.isRecycled) bmp.recycle()
+            }
+        }
+    }
     private var activeDirectoryTitleView: TextView? = null
     private var activeDirectoryPathView: TextView? = null
 
@@ -3706,51 +3727,16 @@ class VideoEditingActivity : AppCompatActivity() {
             return
         }
         
-        if (index > 0) {
-            viewModel.removeMergeVideo(index - 1)
-        } else {
+        if (index == 0) {
             val nextItem = items[1]
-            viewModel.removeMergeVideo(0)
-            
             val newSourceFile = File(nextItem.uri.path ?: nextItem.uri.toString())
             tempInputFile = newSourceFile
             originalMainVideoDurationMs = nextItem.durationMs
             videoFileName = tempInputFile.name
             videoUri = nextItem.uri
-            
-            // Reinitialize project base with new operations
-            val mainOps = viewModel.project.value?.operations?.filter { 
-                it is EditOperation.Trim || it is EditOperation.SpeedMain || it is EditOperation.ReverseMain 
-            }
-            if (mainOps != null) {
-                mainOps.forEach { op ->
-                    val opId = when(op) {
-                        is EditOperation.Trim -> op.id
-                        is EditOperation.SpeedMain -> op.id
-                        is EditOperation.ReverseMain -> op.id
-                        else -> null
-                    }
-                    if (opId != null) viewModel.removeOperation(opId) 
-                }
-            }
-            
-            if (nextItem.trimStartMs > 0 || nextItem.trimEndMs < nextItem.durationMs) {
-                viewModel.updateMainVideoTrim(nextItem.trimStartMs, nextItem.trimEndMs)
-            }
-            if (nextItem.speed != 1.0f) {
-                viewModel.updateMainVideoSpeed(nextItem.speed, nextItem.proxyUri)
-            }
-            if (nextItem.isReversed) {
-                viewModel.updateMainVideoReverse(true, nextItem.proxyUri)
-            }
-            
-            // Need to update the sourceUri and sourceName in the project
-            viewModel.project.value?.let { proj ->
-                viewModel.updateSequenceOrder(getSequenceItems().toMutableList().apply { 
-                    this[0] = this[0].copy(uri = nextItem.uri, durationMs = nextItem.durationMs) 
-                })
-            }
         }
+
+        viewModel.deleteSequenceSegment(index)
         selectedVideoIndex = null
         exitVideoEditingMode()
     }
@@ -6279,18 +6265,29 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun extractFramesForSegment(uri: Uri, durationMs: Long, adapter: FrameAdapter): kotlinx.coroutines.Job? {
         if (durationMs <= 0) return null
         
-        // Return cached if available
-        if (frameCache.containsKey(uri)) {
-            adapter.updateFrames(frameCache[uri]!!)
+        val cached = frameCache.get(uri)
+        if (cached != null) {
+            adapter.updateFrames(cached)
             return null
         }
 
+        if (activeExtractionUris.contains(uri)) {
+            return lifecycleScope.launch {
+                while (activeExtractionUris.contains(uri) && frameCache.get(uri) == null) {
+                    kotlinx.coroutines.delay(100)
+                }
+                frameCache.get(uri)?.let { adapter.updateFrames(it) }
+            }
+        }
+
+        activeExtractionUris.add(uri)
         activeExtractionCount++
         if (isImportLoading) {
             showLoading(getString(R.string.loading), getString(R.string.loading_tag))
         }
 
         return lifecycleScope.launch(Dispatchers.IO) {
+            frameExtractionSemaphore.acquire()
             val retriever = MediaMetadataRetriever()
             val tempFrames = mutableListOf<Bitmap>()
             try {
@@ -6323,7 +6320,9 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
 
                 withContext(Dispatchers.Main) {
-                    frameCache[uri] = tempFrames
+                    if (tempFrames.isNotEmpty()) {
+                        frameCache.put(uri, tempFrames)
+                    }
                 }
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
@@ -6331,8 +6330,10 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
             } finally {
                 retriever.release()
+                frameExtractionSemaphore.release()
                 withContext(kotlinx.coroutines.NonCancellable) {
                     withContext(Dispatchers.Main) {
+                        activeExtractionUris.remove(uri)
                         activeExtractionCount--
                         if (activeExtractionCount <= 0) {
                             activeExtractionCount = 0
@@ -6601,6 +6602,7 @@ class VideoEditingActivity : AppCompatActivity() {
         }
         frameExtractionJob?.cancel()
         previewJob?.cancel()
+        clearFrameCache()
         extractedFrames.forEach { if (!it.isRecycled) it.recycle() }
         draggableTextOverlay?.deactivate()
         draggableImageOverlay?.deactivate()
