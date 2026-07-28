@@ -58,14 +58,16 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 7
 
-      - name: Post Automated Comment to Issue
+      - name: Post or Update Automated Comment on Issue
         if: steps.extract_issue.outputs.issue_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ steps.extract_issue.outputs.issue_number }}
         run: |
-          gh issue comment "${{ steps.extract_issue.outputs.issue_number }}" --body "🧪 **Test Build Available for Issue #${{ steps.extract_issue.outputs.issue_number }}**
+          BODY=$(cat << 'EOF'
+          🧪 **Latest Test Build Available for Issue #${{ steps.extract_issue.outputs.issue_number }}**
 
-          A test build has been automatically generated from branch \`${{ github.ref_name }}\` (Commit \`${{ github.sha }}\`).
+          A test build has been automatically generated from branch `${{ github.ref_name }}` (Commit `${{ github.sha }}`).
 
           ### 📥 Download & Test APK:
           - 🚀 **[Direct APK Download Link (nightly.link)](https://nightly.link/${{ github.repository }}/workflows/issue-test-build.yml/${{ github.sha }}/LibreCuts-Fix-Issue-${{ steps.extract_issue.outputs.issue_number }}.zip)**
@@ -75,7 +77,19 @@ jobs:
 
           ### 📝 Instructions for Tester:
           Please install this APK and verify if the reported issue is fixed on your device.
-          - ✅ **If fixed:** Please reply to confirm so we can merge this fix into \`main\` and close the issue.
+          - ✅ **If fixed:** Please reply to confirm so we can merge this fix into `main` and close the issue.
           - ❌ **If not fixed:** Reply with details on what happened so we can update the fix.
 
-          *Note: Artifact download links remain active for 7 days.*"
+          *Note: Download links remain active for 7 days. This comment is automatically updated whenever new commits are pushed.*
+          EOF
+          )
+
+          EXISTING_COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUM}/comments" --jq '.[] | select(.user.login=="github-actions[bot]" or .user.login=="github-actions") | select(.body | contains("Test Build Available for Issue")) | .id' | head -n 1)
+
+          if [ -n "$EXISTING_COMMENT_ID" ]; then
+            echo "Updating existing comment #$EXISTING_COMMENT_ID to prevent issue comment spamming..."
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING_COMMENT_ID" -f body="$BODY"
+          else
+            echo "Creating initial test build comment on issue #$ISSUE_NUM..."
+            gh issue comment "$ISSUE_NUM" --body "$BODY"
+          fi
