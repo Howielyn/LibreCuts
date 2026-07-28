@@ -60,23 +60,22 @@ jobs:
 
       - name: Post Automated Comment to Issue
         if: steps.extract_issue.outputs.issue_number != ''
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          issue-number: ${{ steps.extract_issue.outputs.issue_number }}
-          body: |
-            🧪 **Test Build Available for Issue #${{ steps.extract_issue.outputs.issue_number }}**
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ steps.extract_issue.outputs.issue_number }}" --body "🧪 **Test Build Available for Issue #${{ steps.extract_issue.outputs.issue_number }}**
 
-            A test build has been automatically generated from branch `${{ github.ref_name }}` (Commit `${{ github.sha }}`).
+          A test build has been automatically generated from branch \`${{ github.ref_name }}\` (Commit \`${{ github.sha }}\`).
 
-            ### 📥 Download & Test APK:
-            - 🚀 **[Direct APK Download Link (nightly.link)](https://nightly.link/${{ github.repository }}/workflows/issue-test-build/${{ github.ref_name }}/LibreCuts-Fix-Issue-${{ steps.extract_issue.outputs.issue_number }}.zip)**
-            - 📦 Alternative: [Download from GitHub Actions Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          ### 📥 Download & Test APK:
+          - 🚀 **[Direct APK Download Link (nightly.link)](https://nightly.link/${{ github.repository }}/workflows/issue-test-build/${{ github.ref_name }}/LibreCuts-Fix-Issue-${{ steps.extract_issue.outputs.issue_number }}.zip)**
+          - 📦 Alternative: [Download from GitHub Actions Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-            ---
+          ---
 
-            ### 📝 Instructions for Tester:
-            Please install this APK and verify if the reported issue is fixed on your device.
-            - ✅ **If fixed:** Please reply to confirm so we can merge this fix into `main` and close the issue.
-            - ❌ **If not fixed:** Reply with details on what happened so we can update the fix.
+          ### 📝 Instructions for Tester:
+          Please install this APK and verify if the reported issue is fixed on your device.
+          - ✅ **If fixed:** Please reply to confirm so we can merge this fix into \`main\` and close the issue.
+          - ❌ **If not fixed:** Reply with details on what happened so we can update the fix.
 
-            *Note: Artifact download links remain active for 7 days.*
+          *Note: Artifact download links remain active for 7 days.*"
