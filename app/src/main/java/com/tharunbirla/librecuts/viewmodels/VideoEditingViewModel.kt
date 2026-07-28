@@ -25,6 +25,13 @@ class VideoEditingViewModel : ViewModel() {
 
     private companion object {
         const val TAG = "VideoEditingViewModel"
+        const val MAX_UNDO_STACK_SIZE = 30
+    }
+
+    private fun pushUndoState(current: VideoProject) {
+        val stack = _undoStack.value + current
+        _undoStack.value = if (stack.size > MAX_UNDO_STACK_SIZE) stack.takeLast(MAX_UNDO_STACK_SIZE) else stack
+        _redoStack.value = emptyList()
     }
 
     private val _project = MutableStateFlow<VideoProject?>(null)
@@ -545,8 +552,7 @@ class VideoEditingViewModel : ViewModel() {
                 val mergeOp = ops[mergeIdx] as EditOperation.Merge
                 val items = mergeOp.items.toMutableList()
                 if (index < 0 || index >= items.size) return@update current
-                _undoStack.value = _undoStack.value + current
-                _redoStack.value = emptyList()
+                pushUndoState(current)
                 items.removeAt(index)
                 if (items.isEmpty()) {
                     ops.removeAt(mergeIdx)
@@ -554,6 +560,90 @@ class VideoEditingViewModel : ViewModel() {
                     ops[mergeIdx] = mergeOp.copy(items = items)
                 }
                 current.copy(operations = ops)
+            }
+        }
+    }
+
+    /**
+     * Atomically deletes a video segment at the given sequence index (0 for main video, 1+ for merged clips).
+     */
+    fun deleteSequenceSegment(index: Int) {
+        viewModelScope.launch {
+            _project.update { current ->
+                if (current == null) return@update null
+                val ops = current.operations.toMutableList()
+
+                if (index == 0) {
+                    val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
+                    if (mergeIdx != -1) {
+                        val mergeOp = ops[mergeIdx] as EditOperation.Merge
+                        val items = mergeOp.items.toMutableList()
+                        if (items.isNotEmpty()) {
+                            val nextItem = items.removeAt(0)
+
+                            ops.removeAll { it is EditOperation.Trim || it is EditOperation.SpeedMain || it is EditOperation.ReverseMain }
+
+                            if (nextItem.trimStartMs > 0 || nextItem.trimEndMs < nextItem.durationMs) {
+                                ops.add(0, EditOperation.Trim(nextItem.trimStartMs, nextItem.trimEndMs))
+                            }
+                            if (nextItem.speed != 1.0f) {
+                                ops.add(EditOperation.SpeedMain(nextItem.speed, nextItem.proxyUri))
+                            }
+                            if (nextItem.isReversed) {
+                                ops.add(EditOperation.ReverseMain(true, nextItem.proxyUri))
+                            }
+
+                            if (items.isEmpty()) {
+                                ops.removeAt(ops.indexOfFirst { it is EditOperation.Merge })
+                            } else {
+                                val currentMergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
+                                if (currentMergeIdx != -1) {
+                                    ops[currentMergeIdx] = mergeOp.copy(items = items)
+                                }
+                            }
+
+                            pushUndoState(current)
+                            current.copy(
+                                sourceUri = nextItem.uri,
+                                sourceName = nextItem.uri.lastPathSegment ?: current.sourceName,
+                                operations = ops
+                            )
+                        } else {
+                            current
+                        }
+                    } else {
+                        current
+                    }
+                } else {
+                    val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
+                    if (mergeIdx != -1) {
+                        val mergeOp = ops[mergeIdx] as EditOperation.Merge
+                        val items = mergeOp.items.toMutableList()
+                        val itemIdx = index - 1
+                        if (itemIdx in items.indices) {
+                            items.removeAt(itemIdx)
+                            pushUndoState(current)
+                            if (items.isEmpty()) {
+                                ops.removeAt(mergeIdx)
+                            } else {
+                                ops[mergeIdx] = mergeOp.copy(items = items)
+                            }
+                            current.copy(operations = ops)
+                        } else {
+                            current
+                        }
+                    } else {
+                        current
+                    }
+                }
+            }
+
+            updateUiState { state ->
+                state.copy(
+                    pendingOperationCount = _project.value?.getOperationCount() ?: 0,
+                    canUndo = _undoStack.value.isNotEmpty(),
+                    canRedo = _redoStack.value.isNotEmpty()
+                )
             }
         }
     }
