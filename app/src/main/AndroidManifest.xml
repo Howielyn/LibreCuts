@@ -16,6 +16,9 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Remove network permission injected by ExoPlayer dependency -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <application
         android:name=".LibreCutsApplication"
         android:allowBackup="true"
