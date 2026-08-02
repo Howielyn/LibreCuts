@@ -16,6 +16,9 @@
   <a href="https://github.com/tharunbirla/LibreCuts/releases/latest">
     <img src="src/images/badges/badge_github.png" alt="Get it on GitHub" height="96" />
   </a>
+  <a href="https://f-droid.org/packages/com.tharunbirla.librecuts/">
+    <img src="src/images/badges/badge_fdroid.png" alt="Get it on F-Droid" height="96" />
+  </a>
   <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/tharunbirla/LibreCuts">
     <img src="src/images/badges/badge_obtainium.png" height="96" alt="Get it on Obtainium" />
   </a>
