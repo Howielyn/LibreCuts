@@ -361,6 +361,7 @@ sealed class EditOperation : Serializable {
         val position: TextPosition = TextPosition.BOTTOM_CENTER,
         val relativeX: Float? = null,
         val relativeY: Float? = null,
+        val fontPath: String? = null,
         val id: String = System.nanoTime().toString()
     ) : EditOperation() {
         fun hasCustomPosition(): Boolean = relativeX != null && relativeY != null

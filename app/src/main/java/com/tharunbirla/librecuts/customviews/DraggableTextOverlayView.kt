@@ -64,7 +64,7 @@ class DraggableTextOverlayView @JvmOverloads constructor(
     private var currentTextAlign = "center"
     private var currentLetterSpacing = 0f
     private var currentLineSpacing = 0f
-    private var currentFontPath: String? = null
+    var currentFontPath: String? = null
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {

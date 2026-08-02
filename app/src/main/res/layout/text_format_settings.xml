@@ -22,12 +22,35 @@
             android:text="Font"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
-        <Spinner
-            android:id="@+id/spinnerFonts"
+        <LinearLayout
+            android:id="@+id/btnSelectFont"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
-            android:backgroundTint="#FFFFFF" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="12dp"
+            android:background="@drawable/tool_button_inactive"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tvSelectedFontName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Roboto Regular"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:ellipsize="end"
+                android:maxLines="1" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_arrow_drop_down_24"
+                app:tint="#FFFFFF" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Opacity -->

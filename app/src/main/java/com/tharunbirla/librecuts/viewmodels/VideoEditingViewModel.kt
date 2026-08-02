@@ -1471,8 +1471,9 @@ class VideoEditingViewModel : ViewModel() {
                             .replace(":", "\\:")
                             .replace("\n", "\n")
                         
-                        val fontPart = if (!fontFilePath.isNullOrBlank()) {
-                            val escapedFont = fontFilePath
+                        val fontToUse = op.fontPath ?: fontFilePath
+                        val fontPart = if (!fontToUse.isNullOrBlank()) {
+                            val escapedFont = fontToUse
                                 .replace("\\", "\\\\")
                                 .replace("'", "\\'")
                                 .replace(":", "\\:")

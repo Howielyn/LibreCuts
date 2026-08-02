@@ -187,64 +187,169 @@ class VideoEditingActivity : AppCompatActivity() {
     // Passed to buildConsolidatedFFmpegCommand() so drawtext can find the font.
     private var fontFilePath: String? = null
 
-    private fun populateFontSpinner(formatContainer: View?) {
-        val spinnerFonts = formatContainer?.findViewById<Spinner>(R.id.spinnerFonts)
-        if (spinnerFonts == null) return
+    private fun setupTextFontSelector(formatContainer: View?) {
+        val container = formatContainer ?: return
+        val btnSelectFont = container.findViewById<View>(R.id.btnSelectFont) ?: return
+        val tvSelectedFontName = container.findViewById<TextView>(R.id.tvSelectedFontName)
 
-        val fontNames = mutableListOf<String>()
-        val fontPaths = mutableListOf<String?>()
-
-        fun addFontEntry(name: String, path: String?) {
-            if (path.isNullOrBlank()) return
-            if (fontPaths.contains(path)) return
-            fontNames.add(name)
-            fontPaths.add(path)
+        val allFonts = com.tharunbirla.librecuts.utils.FontManager.getAllFonts(this, fontFilePath)
+        val currentPath = draggableTextOverlay?.currentFontPath ?: fontFilePath
+        val activeFont = allFonts.find { it.path == currentPath } ?: allFonts.firstOrNull()
+        if (activeFont != null && tvSelectedFontName != null) {
+            tvSelectedFontName.text = activeFont.name
         }
 
-        addFontEntry("Roboto Regular", fontFilePath)
+        btnSelectFont.setBounceClickListener {
+            showFontManagerBottomSheet { selectedFont ->
+                tvSelectedFontName?.text = selectedFont.name
+                draggableTextOverlay?.setFontPath(selectedFont.path)
+            }
+        }
+    }
 
-        val fontDirectories = listOf(
-            File("/system/fonts"),
-            File("/data/fonts"),
-            File("/product/fonts"),
-            File(cacheDir, "fonts")
-        )
+    private fun setupSubtitleFontSelector(subtitlesToolbar: View?) {
+        val toolbar = subtitlesToolbar ?: return
+        val btnSelectSubtitleFont = toolbar.findViewById<View>(R.id.btnSelectSubtitleFont) ?: return
+        val tvSelectedSubtitleFontName = toolbar.findViewById<TextView>(R.id.tvSelectedSubtitleFontName)
 
-        for (dir in fontDirectories) {
-            if (!dir.exists() || !dir.isDirectory) continue
-            dir.listFiles()
-                ?.filter { file -> file.isFile && file.extension.lowercase(Locale.US) in setOf("ttf", "otf") }
-                ?.sortedBy { it.nameWithoutExtension.lowercase(Locale.US) }
-                ?.forEach { file ->
-                    addFontEntry(file.nameWithoutExtension, file.absolutePath)
-                }
+        val allFonts = com.tharunbirla.librecuts.utils.FontManager.getAllFonts(this, fontFilePath)
+        val project = viewModel.project.value
+        val subOp = project?.operations?.find { it is EditOperation.AddSubtitles } as? EditOperation.AddSubtitles
+        val currentPath = subOp?.fontPath ?: fontFilePath
+        val activeFont = allFonts.find { it.path == currentPath } ?: allFonts.firstOrNull()
+        if (activeFont != null && tvSelectedSubtitleFontName != null) {
+            tvSelectedSubtitleFontName.text = activeFont.name
         }
 
-        if (fontNames.isEmpty()) {
-            fontNames.add("Roboto Regular")
-            fontPaths.add(fontFilePath)
-        }
-
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, fontNames)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spinnerFonts.adapter = adapter
-
-        val defaultIndex = fontPaths.indexOf(fontFilePath).takeIf { it >= 0 } ?: 0
-        spinnerFonts.setSelection(defaultIndex)
-        spinnerFonts.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selectedFontPath = fontPaths.getOrNull(position)
-                draggableTextOverlay?.setFontPath(selectedFontPath)
-
-                if (formatContainer?.visibility == View.VISIBLE) {
-                    formatContainer.visibility = View.GONE
-                    val btnFormat = (formatContainer.parent as? View)?.findViewById<ImageButton>(R.id.btnTextFormatTab)
-                    btnFormat?.setColorFilter(getColor(R.color.toolTextInactive))
+        btnSelectSubtitleFont.setBounceClickListener {
+            showFontManagerBottomSheet { selectedFont ->
+                tvSelectedSubtitleFontName?.text = selectedFont.name
+                val currentSubOp = viewModel.project.value?.operations?.find { it is EditOperation.AddSubtitles } as? EditOperation.AddSubtitles
+                if (currentSubOp != null) {
+                    updateSubtitleOp(currentSubOp.copy(fontPath = selectedFont.path))
                 }
             }
-
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
         }
+    }
+
+    private fun showFontManagerBottomSheet(onFontSelected: ((com.tharunbirla.librecuts.utils.FontItem) -> Unit)? = null) {
+        val bottomSheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.dialog_font_manager, null)
+        bottomSheet.setContentView(view)
+
+        val btnClose = view.findViewById<ImageButton>(R.id.btnCloseFontManager)
+        val btnImport = view.findViewById<Button>(R.id.btnImportFont)
+        val rvFonts = view.findViewById<RecyclerView>(R.id.rvFonts)
+        val tvEmpty = view.findViewById<TextView>(R.id.tvEmptyFonts)
+
+        btnClose?.setBounceClickListener {
+            bottomSheet.dismiss()
+        }
+
+        fun refreshFontList() {
+            val allFonts = com.tharunbirla.librecuts.utils.FontManager.getAllFonts(this, fontFilePath)
+            if (allFonts.isEmpty()) {
+                tvEmpty?.visibility = View.VISIBLE
+                rvFonts?.visibility = View.GONE
+            } else {
+                tvEmpty?.visibility = View.GONE
+                rvFonts?.visibility = View.VISIBLE
+
+                rvFonts?.layoutManager = LinearLayoutManager(this)
+                val currentPath = draggableTextOverlay?.currentFontPath
+                rvFonts?.adapter = FontManagerAdapter(
+                    fonts = allFonts,
+                    selectedPath = currentPath,
+                    onSelect = { fontItem ->
+                        onFontSelected?.invoke(fontItem)
+                        draggableTextOverlay?.setFontPath(fontItem.path)
+                        textEditingToolbar?.findViewById<View>(R.id.formatSettingsContainer)?.let { setupTextFontSelector(it) }
+                        setupSubtitleFontSelector(subtitlesEditingToolbar)
+                        bottomSheet.dismiss()
+                    },
+                    onDelete = { fontItem ->
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Delete Font")
+                            .setMessage("Are you sure you want to delete '${fontItem.name}'?")
+                            .setPositiveButton("Delete") { _, _ ->
+                                if (com.tharunbirla.librecuts.utils.FontManager.deleteCustomFont(this, fontItem.path)) {
+                                    Toast.makeText(this, "Font deleted", Toast.LENGTH_SHORT).show()
+                                    refreshFontList()
+                                    textEditingToolbar?.findViewById<View>(R.id.formatSettingsContainer)?.let { setupTextFontSelector(it) }
+                                    setupSubtitleFontSelector(subtitlesEditingToolbar)
+                                } else {
+                                    Toast.makeText(this, "Failed to delete font", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                )
+            }
+        }
+
+        btnImport?.setBounceClickListener {
+            activeFontSelectionCallback = { importedFont ->
+                onFontSelected?.invoke(importedFont)
+                draggableTextOverlay?.setFontPath(importedFont.path)
+                refreshFontList()
+            }
+            importFontLauncher.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-opentype", "*/*"))
+        }
+
+        refreshFontList()
+        bottomSheet.show()
+    }
+
+    private class FontManagerAdapter(
+        private val fonts: List<com.tharunbirla.librecuts.utils.FontItem>,
+        private val selectedPath: String?,
+        private val onSelect: (com.tharunbirla.librecuts.utils.FontItem) -> Unit,
+        private val onDelete: (com.tharunbirla.librecuts.utils.FontItem) -> Unit
+    ) : RecyclerView.Adapter<FontManagerAdapter.FontViewHolder>() {
+
+        class FontViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val tvName: TextView = view.findViewById(R.id.tvFontName)
+            val tvPreview: TextView = view.findViewById(R.id.tvFontPreview)
+            val tvBadge: TextView = view.findViewById(R.id.tvFontBadge)
+            val ivSelected: ImageView = view.findViewById(R.id.ivFontSelected)
+            val btnDelete: ImageButton = view.findViewById(R.id.btnDeleteFont)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FontViewHolder {
+            val view = android.view.LayoutInflater.from(parent.context).inflate(R.layout.item_font_manager, parent, false)
+            return FontViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: FontViewHolder, position: Int) {
+            val font = fonts[position]
+            holder.tvName.text = font.name
+            holder.tvPreview.text = "Aa The quick brown fox 123"
+            if (font.typeface != null) {
+                holder.tvPreview.typeface = font.typeface
+            } else {
+                holder.tvPreview.typeface = android.graphics.Typeface.DEFAULT
+            }
+
+            if (font.isCustom) {
+                holder.tvBadge.visibility = View.VISIBLE
+                holder.tvBadge.text = "Custom"
+                holder.btnDelete.visibility = View.VISIBLE
+                holder.btnDelete.setOnClickListener { onDelete(font) }
+            } else {
+                holder.tvBadge.visibility = View.GONE
+                holder.btnDelete.visibility = View.GONE
+            }
+
+            val isSelected = selectedPath != null && font.path == selectedPath
+            holder.ivSelected.visibility = if (isSelected) View.VISIBLE else View.GONE
+
+            holder.itemView.setOnClickListener {
+                onSelect(font)
+            }
+        }
+
+        override fun getItemCount() = fonts.size
     }
 
     // Cache for frame extraction
@@ -329,6 +434,24 @@ class VideoEditingActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save project", e)
                 Toast.makeText(this, "Failed to save project", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private var activeFontSelectionCallback: ((com.tharunbirla.librecuts.utils.FontItem) -> Unit)? = null
+
+    private val importFontLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val importedFont = com.tharunbirla.librecuts.utils.FontManager.importFontFromUri(this, uri)
+            if (importedFont != null) {
+                Toast.makeText(this, "Font '${importedFont.name}' imported", Toast.LENGTH_SHORT).show()
+                textEditingToolbar?.findViewById<View>(R.id.formatSettingsContainer)?.let { setupTextFontSelector(it) }
+                setupSubtitleFontSelector(subtitlesEditingToolbar)
+                activeFontSelectionCallback?.invoke(importedFont)
+            } else {
+                Toast.makeText(this, "Failed to import font file. Must be a valid .ttf or .otf", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -833,7 +956,7 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
                 
                 // Format UI listeners
-                populateFontSpinner(formatContainer)
+                setupTextFontSelector(formatContainer)
 
                 val seekOpacity = formatContainer?.findViewById<Slider>(R.id.seekOpacity)
                 seekOpacity?.addOnChangeListener { _, value, _ ->
@@ -2607,6 +2730,8 @@ class VideoEditingActivity : AppCompatActivity() {
             val tvValue = toolbar.findViewById<TextView>(R.id.tvSubtitleFontSizeValue)
             slider?.value = subOp.fontSize.toFloat().coerceIn(10f, 80f)
             tvValue?.text = "${subOp.fontSize}"
+
+            setupSubtitleFontSelector(toolbar)
         } else {
             layoutNo?.visibility = View.VISIBLE
             layoutHas?.visibility = View.GONE

@@ -363,6 +363,15 @@ class TextOverlayView @JvmOverloads constructor(
             val subOp = subtitleOperation
             val fontSizeVal = subOp?.fontSize ?: 22
             paint.textSize = fontSizeVal.toFloat() * context.resources.displayMetrics.density * scale
+            if (subOp?.fontPath != null) {
+                try {
+                    paint.typeface = android.graphics.Typeface.createFromFile(subOp.fontPath)
+                } catch (e: Exception) {
+                    paint.typeface = android.graphics.Typeface.DEFAULT
+                }
+            } else {
+                paint.typeface = android.graphics.Typeface.DEFAULT
+            }
             paint.color = Color.WHITE
 
             val bgPaint = Paint().apply {
