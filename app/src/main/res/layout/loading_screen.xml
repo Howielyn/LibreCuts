@@ -56,6 +56,18 @@
                 android:fontFamily="sans-serif"
                 android:textSize="14sp"/>
 
+            <TextView
+                android:id="@+id/tvLoadingPercentage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="0%"
+                android:textColor="@color/colorPrimary"
+                android:fontFamily="sans-serif-medium"
+                android:textSize="18sp"
+                android:visibility="gone"/>
+
             <ProgressBar
                 android:layout_width="40dp"
                 android:layout_height="40dp"
