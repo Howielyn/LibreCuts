@@ -1190,12 +1190,13 @@ class VideoEditingViewModel : ViewModel() {
             filters.add("colorbalance=rs=$w:rm=$w:rh=$w:bs=${-w}:bm=${-w}:bh=${-w}")
         }
 
-        // 4. shadows & highlights
-        // Standard FFmpeg does not have a shadows_highlights filter.
-        // If we want to emulate this in the future, we would need to generate complex curves
-        // or use the 'eq' filter's gamma/contrast settings. For now, we omit it to prevent crashes.
+        // 4. shadows & highlights (emulated via standard FFmpeg 'curves' filter)
         if (op.shadow != 0 || op.highlights != 0) {
-            Log.w(TAG, "Shadow and highlight adjustments are not natively supported by FFmpeg and were skipped.")
+            val yShadow = (0.25 + (op.shadow / 100.0) * 0.15).coerceIn(0.01, 0.99)
+            val yHighlight = (0.75 + (op.highlights / 100.0) * 0.15).coerceIn(0.01, 0.99)
+            val sStr = String.format(java.util.Locale.US, "%.3f", yShadow)
+            val hStr = String.format(java.util.Locale.US, "%.3f", yHighlight)
+            filters.add("curves=m='0/0 0.25/$sStr 0.75/$hStr 1/1'")
         }
 
         // 5. sharpen (unsharp)
