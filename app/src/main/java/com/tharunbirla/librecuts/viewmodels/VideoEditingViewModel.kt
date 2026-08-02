@@ -370,7 +370,7 @@ class VideoEditingViewModel : ViewModel() {
         }
     }
 
-    fun addTransitionOperation(index: Int, type: String) {
+    fun addTransitionOperation(index: Int, type: String, durationMs: Long = 1000L) {
         viewModelScope.launch {
             _project.update { current ->
                 if (current == null) return@update null
@@ -378,7 +378,7 @@ class VideoEditingViewModel : ViewModel() {
                 val ops = current.operations.toMutableList()
                 ops.removeAll { it is EditOperation.Transition && it.index == index }
                 if (type.lowercase() != "none") {
-                    ops.add(EditOperation.Transition(index, type))
+                    ops.add(EditOperation.Transition(index, type, durationMs))
                 }
                 
                 _undoStack.value = _undoStack.value + current

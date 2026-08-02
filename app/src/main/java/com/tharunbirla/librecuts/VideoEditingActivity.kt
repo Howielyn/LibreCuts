@@ -6087,7 +6087,43 @@ class VideoEditingActivity : AppCompatActivity() {
         val project = viewModel.project.value ?: return
         val existingOp = project.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == transitionIndex }
         var activeTransitionType = existingOp?.type ?: "none"
-        
+        var activeDurationMs = existingOp?.durationMs ?: 1000L
+
+        fun applyTransitionToIndex(idx: Int, transType: String, durationMs: Long = activeDurationMs) {
+            val proj = viewModel.project.value ?: return
+            val existing = proj.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == idx }
+            if (transType == "none") {
+                if (existing != null) {
+                    viewModel.removeOperation(existing.id)
+                }
+            } else {
+                if (existing != null) {
+                    viewModel.updateOperation(existing.copy(type = transType, durationMs = durationMs))
+                } else {
+                    viewModel.addTransitionOperation(idx, transType, durationMs)
+                }
+            }
+        }
+
+        val sbDuration = view.findViewById<android.widget.SeekBar>(R.id.sbTransitionDuration)
+        val tvDurationVal = view.findViewById<TextView>(R.id.tvTransitionDurationValue)
+
+        sbDuration?.progress = (activeDurationMs / 100).toInt().coerceIn(1, 30)
+        tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", activeDurationMs / 1000.0f)
+
+        sbDuration?.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                val actualProgress = maxOf(1, progress)
+                activeDurationMs = (actualProgress * 100).toLong()
+                tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", activeDurationMs / 1000.0f)
+                if (fromUser && activeTransitionType != "none") {
+                    applyTransitionToIndex(transitionIndex, activeTransitionType, activeDurationMs)
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+
         val transitions = listOf(
             Pair("none", "None"),
             Pair("fade", "Fade"),
@@ -6127,22 +6163,6 @@ class VideoEditingActivity : AppCompatActivity() {
                     bgFrame.setBackgroundResource(R.drawable.bg_aspect_ratio_item)
                     bgFrame.foreground = null
                     tvShort?.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.textColor))
-                }
-            }
-        }
-
-        fun applyTransitionToIndex(idx: Int, transType: String) {
-            val proj = viewModel.project.value ?: return
-            val existing = proj.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == idx }
-            if (transType == "none") {
-                if (existing != null) {
-                    viewModel.removeOperation(existing.id)
-                }
-            } else {
-                if (existing != null) {
-                    viewModel.updateOperation(existing.copy(type = transType))
-                } else {
-                    viewModel.addTransitionOperation(idx, transType)
                 }
             }
         }
@@ -6212,7 +6232,7 @@ class VideoEditingActivity : AppCompatActivity() {
             itemView.setOnClickListener {
                 activeTransitionType = type
                 refreshSelectionStates()
-                applyTransitionToIndex(transitionIndex, type)
+                applyTransitionToIndex(transitionIndex, type, activeDurationMs)
             }
 
             transitionsList.addView(itemView)
@@ -6223,7 +6243,7 @@ class VideoEditingActivity : AppCompatActivity() {
         view.findViewById<View>(R.id.btnApplyToAll)?.setOnClickListener {
             val transitionsCount = chunkDurationsMs.size - 1
             for (i in 0 until transitionsCount) {
-                applyTransitionToIndex(i, activeTransitionType)
+                applyTransitionToIndex(i, activeTransitionType, activeDurationMs)
             }
             viewModel.project.value?.let { renderTracks(it) }
             bottomSheet.dismiss()
