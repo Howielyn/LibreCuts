@@ -1082,15 +1082,15 @@ class VideoEditingViewModel : ViewModel() {
 
     /** Build a crop filter expression for an aspect ratio. */
     private fun buildCropFilterExpr(op: EditOperation.Crop): String? = when (op.aspectRatio) {
-        "16:9" -> "crop='trunc(min(iw,ih*16/9)/2)*2':'trunc(min(ih,iw*9/16)/2)*2',setsar=1"
-        "9:16" -> "crop='trunc(min(iw,ih*9/16)/2)*2':'trunc(min(ih,iw*16/9)/2)*2',setsar=1"
-        "1:1"  -> "crop='trunc(min(iw,ih)/2)*2':'trunc(min(iw,ih)/2)*2',setsar=1"
+        "16:9" -> "crop='trunc(min(iw\\,ih*16/9)/2)*2':'trunc(min(ih\\,iw*9/16)/2)*2',setsar=1"
+        "9:16" -> "crop='trunc(min(iw\\,ih*9/16)/2)*2':'trunc(min(ih\\,iw*16/9)/2)*2',setsar=1"
+        "1:1"  -> "crop='trunc(min(iw\\,ih)/2)*2':'trunc(min(iw\\,ih)/2)*2',setsar=1"
         "Custom" -> {
             val w = String.format(java.util.Locale.US, "trunc(iw*%.4f/2)*2", op.wFraction)
             val h = String.format(java.util.Locale.US, "trunc(ih*%.4f/2)*2", op.hFraction)
             val x = String.format(java.util.Locale.US, "trunc(iw*%.4f/2)*2", op.xFraction)
             val y = String.format(java.util.Locale.US, "trunc(ih*%.4f/2)*2", op.yFraction)
-            "crop=w=$w:h=$h:x='min($x,iw-($w))':y='min($y,ih-($h))',setsar=1"
+            "crop=w=$w:h=$h:x='min($x\\,iw-($w))':y='min($y\\,ih-($h))',setsar=1"
         }
         else   -> null
     }
@@ -1163,21 +1163,21 @@ class VideoEditingViewModel : ViewModel() {
         } else {
             mc.feather.toString()
         }
-        val fPx = "(max(0.1, ($featherExpr)*0.5))"
+        val fPx = "(max(0.1\\, ($featherExpr)*0.5))"
 
         val shapeExpr = when (mc.shape) {
             EditOperation.MaskShape.RECTANGLE ->
-                "clip(255 * ($mw/2 + $fPx - abs($rx)) / (2 * $fPx), 0, 255) * clip(255 * ($mh/2 + $fPx - abs($ry)) / (2 * $fPx), 0, 255) / 255"
+                "clip(255 * ($mw/2 + $fPx - abs($rx)) / (2 * $fPx)\\, 0\\, 255) * clip(255 * ($mh/2 + $fPx - abs($ry)) / (2 * $fPx)\\, 0\\, 255) / 255"
             EditOperation.MaskShape.ELLIPSE ->
-                "clip(255 * (1 + ($fPx/($mw/2)) - sqrt(pow($rx/($mw/2), 2) + pow($ry/($mh/2), 2))) / (2 * ($fPx/($mw/2))), 0, 255)"
+                "clip(255 * (1 + ($fPx/($mw/2)) - sqrt(pow($rx/($mw/2)\\, 2) + pow($ry/($mh/2)\\, 2))) / (2 * ($fPx/($mw/2)))\\, 0\\, 255)"
             EditOperation.MaskShape.SPLIT ->
-                "clip(255 * ($ry + $fPx) / (2 * $fPx), 0, 255)"
+                "clip(255 * ($ry + $fPx) / (2 * $fPx)\\, 0\\, 255)"
             EditOperation.MaskShape.SHUTTER ->
-                "clip(255 * ($mh/2 + $fPx - abs($ry)) / (2 * $fPx), 0, 255)"
+                "clip(255 * ($mh/2 + $fPx - abs($ry)) / (2 * $fPx)\\, 0\\, 255)"
             EditOperation.MaskShape.HEART ->
-                "clip(255 * (1 + ($fPx/($mw/2)) - sqrt(pow($rx/($mw/2), 2) + pow(($ry + abs($rx)*0.5)/($mh/2), 2))) / (2 * ($fPx/($mw/2))), 0, 255)"
+                "clip(255 * (1 + ($fPx/($mw/2)) - sqrt(pow($rx/($mw/2)\\, 2) + pow(($ry + abs($rx)*0.5)/($mh/2)\\, 2))) / (2 * ($fPx/($mw/2)))\\, 0\\, 255)"
             EditOperation.MaskShape.STAR ->
-                "clip(255 * (1 + ($fPx/($mw/2)) - (pow(abs($rx)/($mw/2), 0.7) + pow(abs($ry)/($mh/2), 0.7))) / (2 * ($fPx/($mw/2))), 0, 255)"
+                "clip(255 * (1 + ($fPx/($mw/2)) - (pow(abs($rx)/($mw/2)\\, 0.7) + pow(abs($ry)/($mh/2)\\, 0.7))) / (2 * ($fPx/($mw/2)))\\, 0\\, 255)"
             else -> "255"
         }
 
@@ -1221,12 +1221,12 @@ class VideoEditingViewModel : ViewModel() {
                 v1.toString()
             }
             
-            expr = "if(lt($tRel, $t2), $segmentExpr, $expr)"
+            expr = "if(lt($tRel\\, $t2)\\, $segmentExpr\\, $expr)"
         }
         
         val firstVal = if (useValueY) sorted.first().valueY else sorted.first().valueX
         val firstTime = sorted.first().timeMs / 1000.0
-        expr = "if(lt($tRel, $firstTime), $firstVal, $expr)"
+        expr = "if(lt($tRel\\, $firstTime)\\, $firstVal\\, $expr)"
         
         return expr
     }
@@ -1251,9 +1251,9 @@ class VideoEditingViewModel : ViewModel() {
         val startSec = maxOf(0L, startTimeMs ?: 0L) / 1000.0
         return if (endTimeMs != null) {
             val endSec = maxOf(0L, endTimeMs) / 1000.0
-            ":enable='between(t,$startSec,$endSec)'"
+            ":enable='between(t\\,$startSec\\,$endSec)'"
         } else {
-            ":enable='gte(t,$startSec)'"
+            ":enable='gte(t\\,$startSec)'"
         }
     }
 
@@ -1480,9 +1480,7 @@ class VideoEditingViewModel : ViewModel() {
                             ""
                         }
                         
-                        val startSec = cue.startTimeMs / 1000.0
-                        val endSec = cue.endTimeMs / 1000.0
-                        val enablePart = ":enable='between(t,$startSec,$endSec)'"
+                        val enablePart = buildEnableExpr(cue.startTimeMs, cue.endTimeMs)
 
                         val posPart = if (op.hasCustomPosition()) {
                             "x='(w*${op.relativeX})-(tw/2)':y='(h*${op.relativeY})-(th/2)'"
