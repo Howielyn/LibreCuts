@@ -6100,9 +6100,27 @@ class VideoEditingActivity : AppCompatActivity() {
         val transitionsList = view.findViewById<LinearLayout>(R.id.transitionsList)
         val project = viewModel.project.value ?: return
         val existingOp = project.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == transitionIndex }
+        var activeTransitionType = existingOp?.type ?: "none"
+        var activeDurationMs = existingOp?.durationMs ?: 1000L
+
+        fun applyTransitionToIndex(idx: Int, transType: String, durationMs: Long = activeDurationMs) {
+            val proj = viewModel.project.value ?: return
+            val existing = proj.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == idx }
+            if (transType == "none") {
+                if (existing != null) {
+                    viewModel.removeOperation(existing.id)
+                }
+            } else {
+                if (existing != null) {
+                    viewModel.updateOperation(existing.copy(type = transType, durationMs = durationMs))
+                } else {
+                    viewModel.addTransitionOperation(idx, transType, durationMs)
+                }
+            }
+        }
+
         val sbDuration = view.findViewById<android.widget.SeekBar>(R.id.sbTransitionDuration)
         val tvDurationVal = view.findViewById<TextView>(R.id.tvTransitionDurationValue)
-        var activeDurationMs = existingOp?.durationMs ?: 1000L
 
         sbDuration?.progress = (activeDurationMs / 100).toInt().coerceIn(1, 30)
         tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", activeDurationMs / 1000.0f)
@@ -6159,22 +6177,6 @@ class VideoEditingActivity : AppCompatActivity() {
                     bgFrame.setBackgroundResource(R.drawable.bg_aspect_ratio_item)
                     bgFrame.foreground = null
                     tvShort?.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.textColor))
-                }
-            }
-        }
-
-        fun applyTransitionToIndex(idx: Int, transType: String, durationMs: Long = 1000L) {
-            val proj = viewModel.project.value ?: return
-            val existing = proj.operations.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Transition>().find { it.index == idx }
-            if (transType == "none") {
-                if (existing != null) {
-                    viewModel.removeOperation(existing.id)
-                }
-            } else {
-                if (existing != null) {
-                    viewModel.updateOperation(existing.copy(type = transType, durationMs = durationMs))
-                } else {
-                    viewModel.addTransitionOperation(idx, transType, durationMs)
                 }
             }
         }
