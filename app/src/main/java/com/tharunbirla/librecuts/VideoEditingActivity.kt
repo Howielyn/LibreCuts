@@ -3257,9 +3257,10 @@ class VideoEditingActivity : AppCompatActivity() {
         }
     }
 
-    private fun showLoading(message: String, subtitle: String? = null) {
+    private fun showLoading(message: String, subtitle: String? = null, initialPercent: Int? = null) {
         val tvLoadingTitle = loadingScreen.findViewById<TextView>(R.id.tvLoadingTitle)
         val tvLoadingSubtitle = loadingScreen.findViewById<TextView>(R.id.tvLoadingSubtitle)
+        val tvLoadingPercentage = loadingScreen.findViewById<TextView>(R.id.tvLoadingPercentage)
         tvLoadingTitle?.text = message
         if (subtitle != null) {
             tvLoadingSubtitle?.text = subtitle
@@ -3267,10 +3268,24 @@ class VideoEditingActivity : AppCompatActivity() {
         } else {
             tvLoadingSubtitle?.visibility = View.GONE
         }
+        if (initialPercent != null) {
+            tvLoadingPercentage?.text = "$initialPercent%"
+            tvLoadingPercentage?.visibility = View.VISIBLE
+        } else {
+            tvLoadingPercentage?.visibility = View.GONE
+        }
         loadingScreen.visibility = View.VISIBLE
     }
 
+    private fun updateLoadingProgress(percent: Int) {
+        val tvLoadingPercentage = loadingScreen.findViewById<TextView>(R.id.tvLoadingPercentage)
+        tvLoadingPercentage?.text = "${percent.coerceIn(0, 100)}%"
+        tvLoadingPercentage?.visibility = View.VISIBLE
+    }
+
     private fun hideLoading() {
+        val tvLoadingPercentage = loadingScreen.findViewById<TextView>(R.id.tvLoadingPercentage)
+        tvLoadingPercentage?.visibility = View.GONE
         loadingScreen.visibility = View.GONE
     }
 
@@ -6333,8 +6348,12 @@ class VideoEditingActivity : AppCompatActivity() {
                     bitmap?.let {
                         val finalBitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) it else processBitmap(it)
                         tempFrames.add(finalBitmap)
+                        val progressPercent = ((i + 1) * 100) / frameCount
                         withContext(Dispatchers.Main) {
                             adapter.addFrame(finalBitmap)
+                            if (isImportLoading) {
+                                updateLoadingProgress(progressPercent)
+                            }
                         }
                     }
                 }
