@@ -48,28 +48,37 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Find existing PR comment
-        if: github.event_name == 'pull_request'
-        uses: peter-evans/find-comment@v3
-        id: fc
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: 'Automated Build APK Ready'
-
       - name: Create or update PR comment
         if: github.event_name == 'pull_request'
-        uses: peter-evans/create-or-update-comment@v4
+        uses: actions/github-script@v7
         with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            ### 🤖 Automated Build APK Ready!
+          script: |
+            const issue_number = context.issue.number;
+            const bodyIdentifier = '### 🤖 Automated Build APK Ready!';
+            const body = `${bodyIdentifier}\n\nA new debug APK build is ready for testing.\n\n* **Commit:** \`${context.sha}\`\n* **Branch:** \`${context.payload.pull_request ? context.payload.pull_request.head.ref : context.ref}\` \n\n📥 **Download Artifact:** You can download the build artifact directly from the [GitHub Actions CI Run Page](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).`;
 
-            A new debug APK build is ready for testing.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue_number,
+            });
 
-            * **Commit:** `${{ github.sha }}`
-            * **Branch:** `${{ github.head_ref || github.ref_name }}`
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes(bodyIdentifier)
+            );
 
-            📥 **Download Artifact:** You can download the build artifact directly from the [GitHub Actions CI Run Page](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
-          edit-mode: replace
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue_number,
+                body: body,
+              });
+            }
