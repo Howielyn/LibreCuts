@@ -48,13 +48,17 @@
             android:textSize="14sp"
             android:fontFamily="sans-serif-medium" />
 
-        <SeekBar
-            android:id="@+id/sbTransitionDuration"
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderTransitionDuration"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:max="30"
-            android:progress="10" />
+            android:valueFrom="0.1"
+            android:valueTo="3.0"
+            android:value="1.0"
+            android:stepSize="0.1"
+            app:thumbColor="@color/colorPrimary"
+            app:trackColorActive="@color/colorPrimary" />
 
         <TextView
             android:id="@+id/tvTransitionDurationValue"

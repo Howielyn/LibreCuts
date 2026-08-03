@@ -6245,24 +6245,20 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         }
 
-        val sbDuration = view.findViewById<android.widget.SeekBar>(R.id.sbTransitionDuration)
+        val sliderDuration = view.findViewById<com.google.android.material.slider.Slider>(R.id.sliderTransitionDuration)
         val tvDurationVal = view.findViewById<TextView>(R.id.tvTransitionDurationValue)
 
-        sbDuration?.progress = (activeDurationMs / 100).toInt().coerceIn(1, 30)
-        tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", activeDurationMs / 1000.0f)
+        val durationSec = (activeDurationMs / 1000.0f).coerceIn(0.1f, 3.0f)
+        sliderDuration?.value = (Math.round(durationSec * 10f) / 10f).coerceIn(0.1f, 3.0f)
+        tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", durationSec)
 
-        sbDuration?.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                val actualProgress = maxOf(1, progress)
-                activeDurationMs = (actualProgress * 100).toLong()
-                tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", activeDurationMs / 1000.0f)
-                if (fromUser && activeTransitionType != "none") {
-                    applyTransitionToIndex(transitionIndex, activeTransitionType, activeDurationMs)
-                }
+        sliderDuration?.addOnChangeListener { _, value, fromUser ->
+            activeDurationMs = (value * 1000f).toLong()
+            tvDurationVal?.text = String.format(java.util.Locale.US, "%.1fs", value)
+            if (fromUser && activeTransitionType != "none") {
+                applyTransitionToIndex(transitionIndex, activeTransitionType, activeDurationMs)
             }
-            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
-        })
+        }
 
         val transitions = listOf(
             Pair("none", "None"),
