@@ -159,4 +159,14 @@
     <string name="str_reset">Reset</string>
     <string name="str_help_translate">Translate LibreCuts</string>
     <string name="str_contribute_translations_on_weblate">Contribute translations on Weblate</string>
+    <string name="str_fullscreen_editor">Fullscreen Editor</string>
+    <string name="str_fullscreen_editor_desc">Hide status bar and navigation bar while editing</string>
+    <string name="str_fullscreen_enabled_desc">Enabled (Hides status &amp; navigation bar)</string>
+    <string name="str_fullscreen_disabled_desc">Disabled (Shows status &amp; navigation bar)</string>
+    <string name="str_editor_and_rendering">Editor &amp; Rendering</string>
+    <string name="str_default_encoder">Default Video Encoder</string>
+    <string name="str_encoder_hardware">Hardware Acceleration (MediaCodec)</string>
+    <string name="str_encoder_software">Software Encoder (CPU - x264)</string>
+    <string name="str_encoder_hardware_desc">Fastest export performance using device GPU</string>
+    <string name="str_encoder_software_desc">Maximum compatibility export using CPU</string>
 </resources>

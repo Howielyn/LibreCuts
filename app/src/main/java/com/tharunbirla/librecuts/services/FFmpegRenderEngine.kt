@@ -147,6 +147,10 @@ class FFmpegRenderEngine(private val context: Context) {
                         Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error: $failLog")
                         val fallbackCommand = command.replace("h264_mediacodec", "libx264")
                         return@withContext executeCommand(fallbackCommand)
+                    } else if (command.contains("libx264")) {
+                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error: $failLog")
+                        val fallbackCommand = command.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
+                        return@withContext executeCommand(fallbackCommand)
                     }
 
                     Log.e(TAG, "FFmpeg error: $failLog")
@@ -283,6 +287,10 @@ class FFmpegRenderEngine(private val context: Context) {
                     if (ffmpegCommand.contains("h264_mediacodec")) {
                         Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error: $failLog")
                         val fallbackCommand = ffmpegCommand.replace("h264_mediacodec", "libx264")
+                        return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
+                    } else if (ffmpegCommand.contains("libx264")) {
+                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error: $failLog")
+                        val fallbackCommand = ffmpegCommand.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
                         return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
                     }
 

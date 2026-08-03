@@ -210,6 +210,22 @@ class MainActivity : AppCompatActivity() {
 
         updateLanguageUI()
 
+        // Initialize Fullscreen Editor preference
+        updateFullscreenEditorUI()
+
+        binding.btnToggleFullscreenEditor.setBounceClickListener {
+            val current = prefs.getBoolean("fullscreen_editor", true)
+            prefs.edit().putBoolean("fullscreen_editor", !current).apply()
+            updateFullscreenEditorUI()
+        }
+
+        // Initialize Default Encoder preference
+        updateEncoderUI()
+
+        binding.btnChangeDefaultEncoder.setBounceClickListener {
+            showEncoderDialog()
+        }
+
         // Set dynamic About version tag
         try {
             val pInfo = packageManager.getPackageInfo(packageName, 0)
@@ -273,6 +289,47 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateFullscreenEditorUI() {
+        val prefs = getSharedPreferences("librecuts_prefs", MODE_PRIVATE)
+        val isFullscreen = prefs.getBoolean("fullscreen_editor", true)
+        binding.tvCurrentFullscreenEditor.text = if (isFullscreen) {
+            getString(R.string.str_fullscreen_enabled_desc)
+        } else {
+            getString(R.string.str_fullscreen_disabled_desc)
+        }
+    }
+
+    private fun updateEncoderUI() {
+        val prefs = getSharedPreferences("librecuts_prefs", MODE_PRIVATE)
+        val defaultEncoder = prefs.getString("default_encoder", "hardware") ?: "hardware"
+        if (defaultEncoder == "software") {
+            binding.tvCurrentDefaultEncoder.text = getString(R.string.str_encoder_software)
+        } else {
+            binding.tvCurrentDefaultEncoder.text = getString(R.string.str_encoder_hardware)
+        }
+    }
+
+    private fun showEncoderDialog() {
+        val prefs = getSharedPreferences("librecuts_prefs", MODE_PRIVATE)
+        val currentEncoder = prefs.getString("default_encoder", "hardware") ?: "hardware"
+        val options = arrayOf(
+            getString(R.string.str_encoder_hardware),
+            getString(R.string.str_encoder_software)
+        )
+        val selectedIndex = if (currentEncoder == "software") 1 else 0
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.str_default_encoder)
+            .setSingleChoiceItems(options, selectedIndex) { dialog, which ->
+                val chosenEncoder = if (which == 1) "software" else "hardware"
+                prefs.edit().putString("default_encoder", chosenEncoder).apply()
+                updateEncoderUI()
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     private fun showLanguageDialog() {
         val dialog = BottomSheetDialog(this)
         val view = layoutInflater.inflate(R.layout.language_bottom_sheet_dialog, null)
@@ -293,7 +350,7 @@ class MainActivity : AppCompatActivity() {
             else -> ivCheckLangSystem.visibility = View.VISIBLE
         }
 
-        view.findViewById<View>(R.id.btnCloseSheet).setBounceClickListener {
+        view.findViewById<View>(R.id.btnCloseSheet)?.setBounceClickListener {
             dialog.dismiss()
         }
 
@@ -307,19 +364,19 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }
 
-        view.findViewById<View>(R.id.layoutLangSystem).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutLangSystem)?.setBounceClickListener {
             setLanguage("")
         }
 
-        view.findViewById<View>(R.id.layoutLangEn).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutLangEn)?.setBounceClickListener {
             setLanguage("en")
         }
 
-        view.findViewById<View>(R.id.layoutLangDe).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutLangDe)?.setBounceClickListener {
             setLanguage("de")
         }
 
-        view.findViewById<View>(R.id.layoutLangEt).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutLangEt)?.setBounceClickListener {
             setLanguage("et")
         }
 
@@ -473,15 +530,15 @@ class MainActivity : AppCompatActivity() {
             tvVersion.text = "Version 1.0-beta4"
         }
 
-        view.findViewById<View>(R.id.layoutStarGithub).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutStarGithub)?.setBounceClickListener {
             openUrl("https://github.com/tharunbirla/LibreCuts")
         }
 
-        view.findViewById<View>(R.id.layoutSponsorGithub).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutSponsorGithub)?.setBounceClickListener {
             openUrl("https://github.com/sponsors/tharunbirla")
         }
 
-        view.findViewById<View>(R.id.layoutDiscord).setBounceClickListener {
+        view.findViewById<View>(R.id.layoutDiscord)?.setBounceClickListener {
             openUrl("https://discord.gg/gwr3nE7YW")
         }
 
@@ -489,7 +546,7 @@ class MainActivity : AppCompatActivity() {
             openUrl("https://github.com/tharunbirla/LibreCuts/wiki/Error-Codes-&-Troubleshooting")
         }
 
-        view.findViewById<View>(R.id.btnOnboardingGetStarted).setBounceClickListener {
+        view.findViewById<View>(R.id.btnOnboardingGetStarted)?.setBounceClickListener {
             prefs.edit().putBoolean("first_launch_v1", false).apply()
             dialog.dismiss()
         }

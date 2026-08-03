@@ -460,12 +460,18 @@ class VideoEditingActivity : AppCompatActivity() {
         setContentView(R.layout.activity_video_editing)
         pixelsPerMs = 0.15f * resources.displayMetrics.density
 
-        // Set fullscreen flags
-        window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                )
+        // Apply system UI visibility based on user setting
+        val prefs = getSharedPreferences("librecuts_prefs", MODE_PRIVATE)
+        val isFullscreen = prefs.getBoolean("fullscreen_editor", true)
+        if (isFullscreen) {
+            window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    )
+        } else {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+        }
 
         // Initialize ViewModel and engine
         viewModel = ViewModelProvider(this).get(VideoEditingViewModel::class.java)
