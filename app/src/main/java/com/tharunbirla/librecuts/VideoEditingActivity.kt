@@ -627,9 +627,28 @@ class VideoEditingActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.toast_log_copied_to_clipboard, Toast.LENGTH_SHORT).show()
             }
             .setPositiveButton("Report on GitHub") { _, _ ->
-                val githubUrl = "https://github.com/tharunbirla/librecuts/issues/new?title=" +
-                        "Error ${errorCode.code}&body=${technicalLog.take(1000)}"
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl)))
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Error Log", technicalLog)
+                clipboard.setPrimaryClip(clip)
+
+                val issueTitle = Uri.encode("[Bug Report] ${errorCode.code}: ${errorCode.description}")
+                val logSnippet = if (technicalLog.length <= 3500) technicalLog else technicalLog.take(3500) + "\n... (Full log copied to clipboard)"
+                val issueBody = Uri.encode(
+                    "## Bug Report (${errorCode.code})\n\n" +
+                    "### Description\n" +
+                    "${errorCode.description}\n\n" +
+                    "### Technical Diagnostic Log\n```\n" +
+                    logSnippet +
+                    "\n```\n\n" +
+                    "*Note: The complete error log has been copied to your clipboard.*"
+                )
+                val githubUrl = "https://github.com/tharunbirla/librecuts/issues/new?title=$issueTitle&body=$issueBody"
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl)))
+                    Toast.makeText(this, "Full log copied to clipboard! Paste into issue if truncated.", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open browser. Log copied to clipboard.", Toast.LENGTH_LONG).show()
+                }
             }
             .setNegativeButton("Close") { dialog, _ -> dialog.dismiss() }
             .setCancelable(false)
@@ -4369,7 +4388,7 @@ class VideoEditingActivity : AppCompatActivity() {
                         showProErrorDialog(ErrorCode.FFMPEG_EXECUTION_FAILED, result.error)
                         Toast.makeText(
                             this@VideoEditingActivity,
-                            "Export failed: ${result.error.take(200)}",
+                            "Export failed. Check the error log dialog for details.",
                             Toast.LENGTH_LONG
                         ).show()
                     }

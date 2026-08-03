@@ -14,6 +14,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import java.io.File
 
+import android.os.Build
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+
 /**
  * FFmpegRenderEngine handles all FFmpeg operations for the video editor.
  *
@@ -30,6 +34,7 @@ import java.io.File
 class FFmpegRenderEngine(private val context: Context) {
 
     private val activeSessions = mutableListOf<FFmpegSession>()
+    private val sessionLogBuffers = ConcurrentHashMap<Long, ConcurrentLinkedQueue<com.antonkarpenko.ffmpegkit.Log>>()
     private val TAG = "FFmpegRenderEngine"
 
     init {
@@ -50,14 +55,21 @@ class FFmpegRenderEngine(private val context: Context) {
             Log.w(TAG, "Failed to set font directory '$fontDir': ${e.message}")
         }
 
-        // Register a global log callback so every FFmpeg stderr line hits logcat.
-        // Without this, getAllLogsAsString() often returns "" when a per-session log
-        // callback is also provided (antonkarpenko fork bypasses session log storage).
+        // Register a global log callback so every FFmpeg stderr line hits logcat and session buffer.
         try {
             FFmpegKitConfig.enableLogCallback { log ->
-                val msg = log.getMessage()?.trimEnd() ?: return@enableLogCallback
+                val msg = log.message?.trimEnd() ?: return@enableLogCallback
                 if (msg.isEmpty()) return@enableLogCallback
-                when (log.getLevel()) {
+
+                val sId = log.sessionId
+                if (sId != 0L) {
+                    val buf = sessionLogBuffers.getOrPut(sId) { ConcurrentLinkedQueue() }
+                    if (buf.size < 2000) {
+                        buf.add(log)
+                    }
+                }
+
+                when (log.level) {
                     Level.AV_LOG_ERROR, Level.AV_LOG_FATAL, Level.AV_LOG_PANIC, Level.AV_LOG_STDERR
                         -> Log.e(TAG, "[ffmpeg] $msg")
                     Level.AV_LOG_WARNING
@@ -124,10 +136,10 @@ class FFmpegRenderEngine(private val context: Context) {
                 val session = FFmpegKit.execute(command)
                 activeSessions.add(session)
 
-                // Use getReturnCode() — the protected field 'returnCode' is not accessible
-                // as a Kotlin property (only public Java getters auto-map as properties).
                 val returnCode = session.getReturnCode()
                 Log.d(TAG, "FFmpeg completed with return code: $returnCode")
+
+                val logs = sessionLogBuffers.remove(session.sessionId)?.toList()
 
                 if (ReturnCode.isSuccess(returnCode)) {
                     RenderResult.Success(
@@ -135,30 +147,25 @@ class FFmpegRenderEngine(private val context: Context) {
                         session = session
                     )
                 } else {
-                    // When FFmpeg fails:
-                    // getFailStackTrace() is non-null only on Java exceptions, not FFmpeg process errors.
-                    // getAllLogsAsString() returns "" (empty, not null) when log callback is active
-                    // — use takeIf { isNotBlank() } so the ?: fallback actually fires.
-                    val failLog = session.getFailStackTrace()?.takeIf { it.isNotBlank() }
-                        ?: session.getAllLogsAsString()?.takeIf { it.isNotBlank() }
-                        ?: "FFmpeg exited with code ${returnCode?.getValue()} (check logcat tag '$TAG' for [ffmpeg] lines)"
-                        
+                    val diagnosticLog = createDiagnosticReport(context, command, returnCode, session, logs)
+
                     if (command.contains("h264_mediacodec")) {
-                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error: $failLog")
+                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = command.replace("h264_mediacodec", "libx264")
                         return@withContext executeCommand(fallbackCommand)
                     } else if (command.contains("libx264")) {
-                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error: $failLog")
+                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error:\n$diagnosticLog")
                         val fallbackCommand = command.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
                         return@withContext executeCommand(fallbackCommand)
                     }
 
-                    Log.e(TAG, "FFmpeg error: $failLog")
-                    RenderResult.Failure(error = failLog, session = session)
+                    Log.e(TAG, "FFmpeg error:\n$diagnosticLog")
+                    RenderResult.Failure(error = diagnosticLog, session = session)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Exception during FFmpeg execution: ${e.message}", e)
-                RenderResult.Failure(error = e.message ?: "Unknown exception")
+                val diagnosticLog = createDiagnosticReport(context, command, null, null, null, e)
+                RenderResult.Failure(error = diagnosticLog)
             }
         }
     }
@@ -169,6 +176,7 @@ class FFmpegRenderEngine(private val context: Context) {
         withContext(Dispatchers.IO) {
             FFmpegKit.cancel()
             activeSessions.clear()
+            sessionLogBuffers.clear()
             Log.d(TAG, "Cancelled all FFmpeg sessions")
         }
     }
@@ -177,6 +185,7 @@ class FFmpegRenderEngine(private val context: Context) {
         withContext(Dispatchers.IO) {
             FFmpegKit.cancel(sessionId)
             activeSessions.removeIf { it.sessionId == sessionId }
+            sessionLogBuffers.remove(sessionId)
             Log.d(TAG, "Cancelled session: $sessionId")
         }
     }
@@ -244,14 +253,19 @@ class FFmpegRenderEngine(private val context: Context) {
                     val asyncSession = FFmpegKit.executeAsync(ffmpegCommand, { completeSession ->
                         cont.resume(completeSession)
                     }, { log ->
-                        // Forward every FFmpeg log line to logcat so we always see the real error.
-                        // (Providing this callback can bypass session log storage in some builds,
-                        //  so we must log here rather than relying on getAllLogsAsString() later.)
                         val msg = log.message?.trimEnd() ?: return@executeAsync
-                        if (msg.isNotEmpty()) Log.d(TAG, "[ffmpeg] $msg")
+                        if (msg.isNotEmpty()) {
+                            val sId = log.sessionId
+                            if (sId != 0L) {
+                                val buf = sessionLogBuffers.getOrPut(sId) { ConcurrentLinkedQueue() }
+                                if (buf.size < 2000) {
+                                    buf.add(log)
+                                }
+                            }
+                            Log.d(TAG, "[ffmpeg] $msg")
+                        }
                     }, { statistics ->
                         if (totalDurationSecs != null && totalDurationSecs > 0) {
-                            // statistics.getTime() actually returns milliseconds
                             val timeMs = statistics.time
                             if (timeMs > 0) {
                                 val timeSecs = timeMs.toDouble() / 1000.0
@@ -265,14 +279,16 @@ class FFmpegRenderEngine(private val context: Context) {
                     cont.invokeOnCancellation {
                         FFmpegKit.cancel(asyncSession.sessionId)
                         activeSessions.remove(asyncSession)
+                        sessionLogBuffers.remove(asyncSession.sessionId)
                     }
                 }
                 
                 activeSessions.remove(session)
 
-                // Use getReturnCode() — see executeCommand() note above.
                 val returnCode = session.getReturnCode()
                 Log.d(TAG, "FFmpeg completed with return code: ${returnCode?.getValue()}")
+
+                val logs = sessionLogBuffers.remove(session.sessionId)?.toList()
 
                 if (ReturnCode.isSuccess(returnCode)) {
                     RenderResult.Success(
@@ -280,28 +296,127 @@ class FFmpegRenderEngine(private val context: Context) {
                         session = session
                     )
                 } else {
-                    val failLog = session.getFailStackTrace()?.takeIf { it.isNotBlank() }
-                        ?: session.getAllLogsAsString()?.takeIf { it.isNotBlank() }
-                        ?: "FFmpeg exited with code ${returnCode?.getValue()} (see logcat tag '$TAG' for [ffmpeg] lines)"
-                        
+                    val diagnosticLog = createDiagnosticReport(context, ffmpegCommand, returnCode, session, logs)
+
                     if (ffmpegCommand.contains("h264_mediacodec")) {
-                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error: $failLog")
+                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = ffmpegCommand.replace("h264_mediacodec", "libx264")
                         return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
                     } else if (ffmpegCommand.contains("libx264")) {
-                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error: $failLog")
+                        Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error:\n$diagnosticLog")
                         val fallbackCommand = ffmpegCommand.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
                         return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
                     }
 
-                    Log.e(TAG, "FFmpeg error: $failLog")
-                    RenderResult.Failure(error = failLog, session = session)
+                    Log.e(TAG, "FFmpeg error:\n$diagnosticLog")
+                    RenderResult.Failure(error = diagnosticLog, session = session)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Exception during FFmpeg execution: ${e.message}", e)
-                RenderResult.Failure(error = e.message ?: "Unknown exception")
+                val diagnosticLog = createDiagnosticReport(context, ffmpegCommand, null, null, null, e)
+                RenderResult.Failure(error = diagnosticLog)
             }
         }
+    }
+
+    /**
+     * Create a structured technical diagnostic report for failed operations.
+     */
+    private fun createDiagnosticReport(
+        context: Context,
+        command: String,
+        returnCode: ReturnCode?,
+        session: FFmpegSession?,
+        collectedLogs: List<com.antonkarpenko.ffmpegkit.Log>?,
+        exception: Throwable? = null
+    ): String {
+        val appVersion = try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            "${pInfo.versionName} (${pInfo.versionCode})"
+        } catch (e: Exception) {
+            "1.0-beta"
+        }
+
+        val failStackTrace = session?.failStackTrace?.takeIf { it.isNotBlank() }
+
+        val rawLogLines = mutableListOf<String>()
+        if (!collectedLogs.isNullOrEmpty()) {
+            for (l in collectedLogs) {
+                l.message?.trimEnd()?.let { if (it.isNotEmpty()) rawLogLines.add(it) }
+            }
+        } else {
+            session?.allLogsAsString?.takeIf { it.isNotBlank() }?.let { allLogsStr ->
+                rawLogLines.addAll(allLogsStr.split("\n").map { it.trimEnd() }.filter { it.isNotEmpty() })
+            }
+        }
+
+        val errorKeywords = listOf(
+            "error", "fatal", "panic", "failed", "invalid", "cannot",
+            "denied", "not found", "no such", "exception", "aborted",
+            "conversion failed", "option not found", "filtergraph", "could not"
+        )
+
+        val keyErrors = mutableListOf<String>()
+        val cleanHistory = mutableListOf<String>()
+
+        for (line in rawLogLines) {
+            val lower = line.lowercase()
+            val isProgress = line.startsWith("frame=") || line.startsWith("size=") ||
+                    (line.contains("fps=") && line.contains("time="))
+            val isErrorLine = errorKeywords.any { lower.contains(it) }
+
+            if (isErrorLine && !isProgress) {
+                keyErrors.add(line)
+            }
+            if (!isProgress || isErrorLine) {
+                cleanHistory.add(line)
+            }
+        }
+
+        val sb = StringBuilder()
+        sb.appendLine("==================================================")
+        sb.appendLine("             LIBRECUTS TECHNICAL LOG             ")
+        sb.appendLine("==================================================")
+        sb.appendLine("App Version : $appVersion")
+        sb.appendLine("Device      : ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})")
+        sb.appendLine("Return Code : ${returnCode?.getValue() ?: "N/A"}")
+        if (exception != null) {
+            sb.appendLine("Exception   : ${exception.javaClass.simpleName} - ${exception.message}")
+        }
+        sb.appendLine()
+        sb.appendLine("--------------------------------------------------")
+        sb.appendLine("EXECUTED COMMAND:")
+        sb.appendLine("--------------------------------------------------")
+        sb.appendLine(command)
+        sb.appendLine()
+
+        if (!failStackTrace.isNullOrEmpty()) {
+            sb.appendLine("--------------------------------------------------")
+            sb.appendLine("JAVA FAIL STACK TRACE:")
+            sb.appendLine("--------------------------------------------------")
+            sb.appendLine(failStackTrace)
+            sb.appendLine()
+        }
+
+        if (keyErrors.isNotEmpty()) {
+            sb.appendLine("--------------------------------------------------")
+            sb.appendLine("CRITICAL ERROR MESSAGES (${keyErrors.size}):")
+            sb.appendLine("--------------------------------------------------")
+            keyErrors.take(25).forEach { sb.appendLine(it) }
+            sb.appendLine()
+        }
+
+        sb.appendLine("--------------------------------------------------")
+        sb.appendLine("RELEVANT LOG TRAIL (${cleanHistory.size} lines):")
+        sb.appendLine("--------------------------------------------------")
+        if (cleanHistory.isEmpty()) {
+            sb.appendLine("(No log lines outputted by FFmpeg)")
+        } else {
+            cleanHistory.takeLast(100).forEach { sb.appendLine(it) }
+        }
+        sb.appendLine("==================================================")
+
+        return sb.toString()
     }
 
     /** Extract audio from a video file using FFmpeg. */
