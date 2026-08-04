@@ -89,6 +89,32 @@ class VideoEditingActivity : AppCompatActivity() {
     private lateinit var btnMoveLayerUp: ImageButton
     private lateinit var btnMoveLayerDown: ImageButton
 
+    private lateinit var canvasContainer: FrameLayout
+    private lateinit var btnFullscreen: ImageButton
+    private lateinit var btnExpandTimeline: ImageButton
+    private lateinit var pipPlayerContainer: FrameLayout
+    private lateinit var fullscreenOverlay: FrameLayout
+    private lateinit var fullscreenCanvasHolder: FrameLayout
+    private lateinit var fullscreenControls: android.widget.RelativeLayout
+    private lateinit var btnFullscreenPlayPause: ImageButton
+    private lateinit var btnExitFullscreen: ImageButton
+    private lateinit var btnExitFullscreenTop: ImageButton
+    private lateinit var sbFullscreenSeeker: SeekBar
+    private lateinit var tvFullscreenCurrentTime: TextView
+    private lateinit var tvFullscreenTotalTime: TextView
+
+    private var isFullscreenMode = false
+    private var isTimelineExpanded = false
+    private var isUserScrubbingFullscreenSeeker = false
+    private val fullscreenHideHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val hideFullscreenControlsRunnable = Runnable {
+        if (::fullscreenControls.isInitialized && isFullscreenMode) {
+            fullscreenControls.animate().alpha(0f).setDuration(300).withEndAction {
+                fullscreenControls.visibility = View.GONE
+            }.start()
+        }
+    }
+
     private lateinit var timelineHorizontalScroll: android.widget.HorizontalScrollView
     private lateinit var timelineVerticalScroll: android.widget.ScrollView
     private lateinit var btnTimelineAdd: View
@@ -484,7 +510,9 @@ class VideoEditingActivity : AppCompatActivity() {
         // Register back-press callback to prompt for quit confirmation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isHandwritingActive) {
+                if (isFullscreenMode) {
+                    exitFullscreenMode()
+                } else if (isHandwritingActive) {
                     val canvasView = findViewById<HandwritingCanvasView>(R.id.handwritingCanvasView)
                     if (canvasView != null && !canvasView.isEmpty()) {
                         MaterialAlertDialogBuilder(this@VideoEditingActivity)
@@ -625,8 +653,14 @@ class VideoEditingActivity : AppCompatActivity() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     btnPlayPause.setImageResource(R.drawable.ic_pause_24)
+                    if (::btnFullscreenPlayPause.isInitialized) {
+                        btnFullscreenPlayPause.setImageResource(R.drawable.ic_pause_24)
+                    }
                 } else {
                     btnPlayPause.setImageResource(R.drawable.ic_play_24)
+                    if (::btnFullscreenPlayPause.isInitialized) {
+                        btnFullscreenPlayPause.setImageResource(R.drawable.ic_play_24)
+                    }
                 }
             }
         })
@@ -679,18 +713,29 @@ class VideoEditingActivity : AppCompatActivity() {
         playerContainer = findViewById(R.id.playerContainer)
         bgPreviewImageView = findViewById(R.id.bgPreviewImageView)
         transitionPreviewOverlayView = findViewById(R.id.transitionPreviewOverlayView)
-        val canvasContainer = findViewById<FrameLayout>(R.id.canvasContainer)
+        canvasContainer = findViewById(R.id.canvasContainer)
 
-        playerContainer.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                val cropOps = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Crop>()
-                if (cropOps != null && cropOps.isNotEmpty() && cropEditingToolbar?.visibility != View.VISIBLE) {
-                    applyCropPreview(cropOps.last().aspectRatio)
-                } else {
-                    resetCropPreview()
-                }
-            }
-        })
+        btnFullscreen = findViewById(R.id.btnFullscreen)
+        btnExpandTimeline = findViewById(R.id.btnExpandTimeline)
+        pipPlayerContainer = findViewById(R.id.pipPlayerContainer)
+        fullscreenOverlay = findViewById(R.id.fullscreenOverlay)
+        fullscreenCanvasHolder = findViewById(R.id.fullscreenCanvasHolder)
+        fullscreenControls = findViewById(R.id.fullscreenControls)
+        btnFullscreenPlayPause = findViewById(R.id.btnFullscreenPlayPause)
+        btnExitFullscreen = findViewById(R.id.btnExitFullscreen)
+        btnExitFullscreenTop = findViewById(R.id.btnExitFullscreenTop)
+        sbFullscreenSeeker = findViewById(R.id.sbFullscreenSeeker)
+        tvFullscreenCurrentTime = findViewById(R.id.tvFullscreenCurrentTime)
+        tvFullscreenTotalTime = findViewById(R.id.tvFullscreenTotalTime)
+
+        setupFullscreenAndPipControls()
+
+        val canvasLayoutListener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            triggerCanvasLayoutUpdate()
+        }
+        playerContainer.viewTreeObserver.addOnGlobalLayoutListener(canvasLayoutListener)
+        pipPlayerContainer.viewTreeObserver.addOnGlobalLayoutListener(canvasLayoutListener)
+        fullscreenCanvasHolder.viewTreeObserver.addOnGlobalLayoutListener(canvasLayoutListener)
 
         tvDuration = findViewById(R.id.tvDuration)
         sequenceTrackContainer = findViewById(R.id.sequenceTrackContainer)
@@ -2149,9 +2194,10 @@ class VideoEditingActivity : AppCompatActivity() {
         val wFrac = bounds.width().coerceIn(0.001f, 1f)
         val hFrac = bounds.height().coerceIn(0.001f, 1f)
 
-        playerContainer.post {
-            val containerWidth = playerContainer.width.toFloat()
-            val containerHeight = playerContainer.height.toFloat()
+        val activeParent = (canvasContainer.parent as? View) ?: playerContainer
+        activeParent.post {
+            val containerWidth = activeParent.width.toFloat()
+            val containerHeight = activeParent.height.toFloat()
             if (containerWidth <= 0f || containerHeight <= 0f) return@post
 
             val baseVideoRatio = if (primaryVideoAspectRatio > 0f) primaryVideoAspectRatio else {
@@ -2204,8 +2250,8 @@ class VideoEditingActivity : AppCompatActivity() {
             playerView.translationX = -fullWidth * xFrac
             playerView.translationY = -fullHeight * yFrac
 
-            // 3. Overlays match the canvasContainer
-            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay)
+            val hwCanvas = findViewById<com.tharunbirla.librecuts.customviews.HandwritingCanvasView>(R.id.handwritingCanvasView)
+            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay, cropOverlayView, videoMaskOverlayView, hwCanvas)
             for (overlay in overlays) {
                 overlay?.let {
                     val overlayParams = it.layoutParams as FrameLayout.LayoutParams
@@ -2222,14 +2268,16 @@ class VideoEditingActivity : AppCompatActivity() {
             draggableTextOverlay?.setVideoSize(canvasW.toInt(), canvasH.toInt())
             imageOverlayView?.setVideoSize(canvasW.toInt(), canvasH.toInt())
             draggableImageOverlay?.setVideoSize(canvasW.toInt(), canvasH.toInt())
+            cropOverlayView?.setVideoSize(canvasW.toInt(), canvasH.toInt())
         }
     }
 
     private fun resetCropPreview() {
         val canvasContainer = findViewById<FrameLayout>(R.id.canvasContainer) ?: return
-        playerContainer.post {
-            val containerWidth = playerContainer.width
-            val containerHeight = playerContainer.height
+        val activeParent = (canvasContainer.parent as? View) ?: playerContainer
+        activeParent.post {
+            val containerWidth = activeParent.width
+            val containerHeight = activeParent.height
             if (containerWidth <= 0 || containerHeight <= 0) return@post
 
             val baseVideoRatio = if (primaryVideoAspectRatio > 0f) primaryVideoAspectRatio else 16f / 9f
@@ -2258,7 +2306,8 @@ class VideoEditingActivity : AppCompatActivity() {
             playerView.translationX = 0f
             playerView.translationY = 0f
 
-            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay, cropOverlayView)
+            val hwCanvas = findViewById<com.tharunbirla.librecuts.customviews.HandwritingCanvasView>(R.id.handwritingCanvasView)
+            val overlays = listOf(textOverlayView, draggableTextOverlay, imageOverlayView, draggableImageOverlay, cropOverlayView, videoMaskOverlayView, hwCanvas)
             for (overlay in overlays) {
                 overlay?.let {
                     val overlayParams = it.layoutParams as FrameLayout.LayoutParams
@@ -2592,8 +2641,9 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private fun getVideoRect(): android.graphics.RectF {
-        val containerWidth = playerContainer.width.toFloat()
-        val containerHeight = playerContainer.height.toFloat()
+        val activeParent = (canvasContainer.parent as? View) ?: playerContainer
+        val containerWidth = activeParent.width.toFloat()
+        val containerHeight = activeParent.height.toFloat()
         if (containerWidth <= 0f || containerHeight <= 0f) return android.graphics.RectF(0f, 0f, 1080f, 1920f)
 
         val baseRatio = if (primaryVideoAspectRatio > 0f) primaryVideoAspectRatio else 16f / 9f
@@ -6816,6 +6866,208 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun updateDurationDisplay(current: Int, total: Int) {
         if (total <= 0) return
         tvDuration.text = "${formatDuration(current)} / ${formatDuration(total)}"
+        if (::tvFullscreenCurrentTime.isInitialized) {
+            tvFullscreenCurrentTime.text = formatDuration(current)
+        }
+        if (::tvFullscreenTotalTime.isInitialized) {
+            tvFullscreenTotalTime.text = formatDuration(total)
+        }
+        if (::sbFullscreenSeeker.isInitialized && !isUserScrubbingFullscreenSeeker) {
+            val progress = ((current.toFloat() / total.toFloat()) * 1000).toInt().coerceIn(0, 1000)
+            sbFullscreenSeeker.progress = progress
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupFullscreenAndPipControls() {
+        btnFullscreen.setBounceClickListener {
+            enterFullscreenMode()
+        }
+
+        btnExitFullscreen.setBounceClickListener {
+            exitFullscreenMode()
+        }
+        btnExitFullscreenTop.setBounceClickListener {
+            exitFullscreenMode()
+        }
+
+        btnFullscreenPlayPause.setBounceClickListener {
+            if (::player.isInitialized && isVideoLoaded) {
+                if (player.isPlaying) {
+                    player.pause()
+                } else {
+                    val totalDuration = getTotalSequenceDuration()
+                    val currentGlobalPos = getGlobalPosition()
+                    if (currentGlobalPos >= totalDuration - 100L || player.playbackState == Player.STATE_ENDED) {
+                        seekToGlobalPosition(0L)
+                        timelineHorizontalScroll.scrollTo(0, 0)
+                        updateDurationDisplay(0, totalDuration.toInt())
+                    }
+                    player.play()
+                }
+            }
+            showFullscreenControlsTemporarily()
+        }
+
+        fullscreenOverlay.setOnClickListener {
+            if (fullscreenControls.visibility == View.VISIBLE && fullscreenControls.alpha > 0.5f) {
+                fullscreenHideHandler.removeCallbacks(hideFullscreenControlsRunnable)
+                fullscreenControls.animate().alpha(0f).setDuration(250).withEndAction {
+                    fullscreenControls.visibility = View.GONE
+                }.start()
+            } else {
+                showFullscreenControlsTemporarily()
+            }
+        }
+
+        sbFullscreenSeeker.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val totalMs = getTotalSequenceDuration()
+                    if (totalMs > 0) {
+                        val targetMs = ((progress.toFloat() / 1000f) * totalMs).toLong()
+                        seekToGlobalPosition(targetMs)
+                        isProgrammaticScroll = true
+                        timelineHorizontalScroll.scrollTo((targetMs * pixelsPerMs).toInt(), 0)
+                        isProgrammaticScroll = false
+                        tvFullscreenCurrentTime.text = formatDuration(targetMs.toInt())
+                        tvDuration.text = "${formatDuration(targetMs.toInt())} / ${formatDuration(totalMs.toInt())}"
+                    }
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                isUserScrubbingFullscreenSeeker = true
+                fullscreenHideHandler.removeCallbacks(hideFullscreenControlsRunnable)
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                isUserScrubbingFullscreenSeeker = false
+                showFullscreenControlsTemporarily()
+            }
+        })
+
+        btnExpandTimeline.setBounceClickListener {
+            toggleTimelineExpandedMode()
+        }
+
+        var pipInitialX = 0f
+        var pipInitialY = 0f
+        var touchStartX = 0f
+        var touchStartY = 0f
+
+        pipPlayerContainer.setOnTouchListener { view, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    pipInitialX = view.x
+                    pipInitialY = view.y
+                    touchStartX = event.rawX
+                    touchStartY = event.rawY
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchStartX
+                    val dy = event.rawY - touchStartY
+                    val parent = view.parent as? View ?: return@setOnTouchListener false
+                    val maxW = (parent.width - view.width).toFloat()
+                    val maxH = (parent.height - view.height).toFloat()
+                    val newX = (pipInitialX + dx).coerceIn(0f, maxW)
+                    val newY = (pipInitialY + dy).coerceIn(0f, maxH)
+                    view.x = newX
+                    view.y = newY
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun reparentCanvasContainer(targetContainer: ViewGroup) {
+        val parent = canvasContainer.parent as? ViewGroup
+        if (parent != targetContainer) {
+            parent?.removeView(canvasContainer)
+            targetContainer.addView(canvasContainer, 0, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        }
+        targetContainer.post {
+            triggerCanvasLayoutUpdate()
+        }
+    }
+
+    private fun triggerCanvasLayoutUpdate() {
+        val cropOps = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Crop>()
+        if (cropOps != null && cropOps.isNotEmpty() && cropEditingToolbar?.visibility != View.VISIBLE) {
+            applyCropPreview(cropOps.last().aspectRatio)
+        } else {
+            resetCropPreview()
+        }
+    }
+
+    private fun showFullscreenControlsTemporarily() {
+        fullscreenHideHandler.removeCallbacks(hideFullscreenControlsRunnable)
+        fullscreenControls.visibility = View.VISIBLE
+        fullscreenControls.animate().cancel()
+        fullscreenControls.alpha = 1f
+        fullscreenHideHandler.postDelayed(hideFullscreenControlsRunnable, 3500)
+    }
+
+    private fun enterFullscreenMode() {
+        isFullscreenMode = true
+        fullscreenOverlay.visibility = View.VISIBLE
+        fullscreenControls.visibility = View.VISIBLE
+        fullscreenControls.alpha = 1f
+        reparentCanvasContainer(fullscreenCanvasHolder)
+        showFullscreenControlsTemporarily()
+    }
+
+    private fun exitFullscreenMode() {
+        isFullscreenMode = false
+        fullscreenHideHandler.removeCallbacks(hideFullscreenControlsRunnable)
+        fullscreenOverlay.visibility = View.GONE
+        if (isTimelineExpanded) {
+            reparentCanvasContainer(pipPlayerContainer)
+        } else {
+            reparentCanvasContainer(playerContainer)
+        }
+    }
+
+    private fun toggleTimelineExpandedMode() {
+        isTimelineExpanded = !isTimelineExpanded
+        val seekerContainer = findViewById<LinearLayout>(R.id.seekerContainer)
+
+        if (isTimelineExpanded) {
+            btnExpandTimeline.setImageResource(R.drawable.ic_collapse_24)
+            playerContainer.visibility = View.GONE
+            pipPlayerContainer.visibility = View.VISIBLE
+            reparentCanvasContainer(pipPlayerContainer)
+
+            val lpSeeker = seekerContainer.layoutParams as LinearLayout.LayoutParams
+            lpSeeker.height = 0
+            lpSeeker.weight = 1.0f
+            seekerContainer.layoutParams = lpSeeker
+
+            val lpTimeline = timelineContainer.layoutParams as LinearLayout.LayoutParams
+            lpTimeline.height = 0
+            lpTimeline.weight = 1.0f
+            timelineContainer.layoutParams = lpTimeline
+        } else {
+            btnExpandTimeline.setImageResource(R.drawable.ic_expand_24)
+            pipPlayerContainer.visibility = View.GONE
+            playerContainer.visibility = View.VISIBLE
+            reparentCanvasContainer(playerContainer)
+
+            val lpSeeker = seekerContainer.layoutParams as LinearLayout.LayoutParams
+            lpSeeker.height = LinearLayout.LayoutParams.WRAP_CONTENT
+            lpSeeker.weight = 0f
+            seekerContainer.layoutParams = lpSeeker
+
+            val lpTimeline = timelineContainer.layoutParams as LinearLayout.LayoutParams
+            lpTimeline.height = 140.dpToPx()
+            lpTimeline.weight = 0f
+            timelineContainer.layoutParams = lpTimeline
+        }
     }
 
     private fun formatDuration(milliseconds: Int): String {
