@@ -159,4 +159,18 @@
     <string name="str_reset">Lähtesta</string>
     <string name="str_help_translate">Aita LibreCutsi tõlkimisel</string>
     <string name="str_contribute_translations_on_weblate">Osale tõlkimisel Weblate\'i teenuses</string>
+    <string name="str_fullscreen_editor">Muutmisvaade täisekraanina</string>
+    <string name="str_fullscreen_editor_desc">Muutmise ajal peida oleku- ja menüüriba</string>
+    <string name="str_fullscreen_enabled_desc">Kasutusel (Oleku- ja menüüriba on peidetud)</string>
+    <string name="str_fullscreen_disabled_desc">Pole kasutusel (Oleku- ja menüüriba on kuvatud)</string>
+    <string name="str_editor_and_rendering">Muutmisvaade ja renderdamine</string>
+    <string name="str_default_encoder">Vaikimisi videokodeerija</string>
+    <string name="str_encoder_hardware">Raudvaraaline kiirendus (MediaCodec)</string>
+    <string name="str_encoder_software">Tarkvaraline kodeerija (CPU - x264)</string>
+    <string name="str_brush_size">Pintsli suurus</string>
+    <string name="str_clear">Tühjenda</string>
+    <string name="str_handwriting">Käekiri</string>
+    <string name="str_draw">Joonista</string>
+    <string name="str_encoder_software_desc">Põhiprotsessoriga loodud parima ühilduvusega väljund</string>
+    <string name="str_encoder_hardware_desc">Graafikaprotsessoriga kiirelt loodud väljund</string>
 </resources>
