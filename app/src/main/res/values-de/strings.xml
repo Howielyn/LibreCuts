@@ -159,4 +159,17 @@
     <string name="str_reset">Zurücksetzen</string>
     <string name="str_help_translate">LibreCuts übersetzen</string>
     <string name="str_contribute_translations_on_weblate">Übersetzungen auf Weblate beitragen</string>
+    <string name="str_fullscreen_editor">Vollbildeditor</string>
+    <string name="str_fullscreen_editor_desc">Status- und Navigationsleiste während Bearbeitung verstecken</string>
+    <string name="str_fullscreen_enabled_desc">Status- und Navigationsleiste anzeigen</string>
+    <string name="str_editor_and_rendering">Editor &amp; Rendern</string>
+    <string name="str_default_encoder">Standard Videoencoder</string>
+    <string name="str_encoder_hardware">Hardwarebeschleunigung (MediaCodec)</string>
+    <string name="str_encoder_software">Software-encoder (CPU - x264</string>
+    <string name="str_encoder_hardware_desc">Schnellster Export via GPU</string>
+    <string name="str_encoder_software_desc">Maximale Kompaktibilität via CPU</string>
+    <string name="str_draw">Zeichnen</string>
+    <string name="str_handwriting">Handschrift</string>
+    <string name="str_brush_size">Pinselgröße</string>
+    <string name="str_clear">Leeren</string>
 </resources>
