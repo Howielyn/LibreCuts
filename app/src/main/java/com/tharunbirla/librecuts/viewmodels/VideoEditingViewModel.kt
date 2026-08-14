@@ -233,15 +233,37 @@ class VideoEditingViewModel : ViewModel() {
         yFraction: Float = 0f,
         wFraction: Float = 1f,
         hFraction: Float = 1f
-    ) = addOperation(
-        EditOperation.Crop(
-            aspectRatio = aspectRatio,
-            xFraction = xFraction,
-            yFraction = yFraction,
-            wFraction = wFraction,
-            hFraction = hFraction
-        )
-    )
+    ) {
+        viewModelScope.launch {
+            _project.update { current ->
+                if (current == null) return@update null
+                val ops = current.operations.toMutableList()
+                val existingIdx = ops.indexOfFirst { it is EditOperation.Crop }
+                val newOp = EditOperation.Crop(
+                    aspectRatio = aspectRatio,
+                    xFraction = xFraction,
+                    yFraction = yFraction,
+                    wFraction = wFraction,
+                    hFraction = hFraction
+                )
+                if (existingIdx != -1) {
+                    ops[existingIdx] = newOp
+                } else {
+                    ops.add(newOp)
+                }
+                _undoStack.value = _undoStack.value + current
+                _redoStack.value = emptyList()
+                current.copy(operations = ops)
+            }
+            updateUiState { state ->
+                state.copy(
+                    pendingOperationCount = _project.value?.getOperationCount() ?: 0,
+                    canUndo = _undoStack.value.isNotEmpty(),
+                    canRedo = false
+                )
+            }
+        }
+    }
 
     fun updateCanvasBackgroundOperation(
         type: EditOperation.CanvasBackground.BackgroundType,
@@ -1081,18 +1103,22 @@ class VideoEditingViewModel : ViewModel() {
     // ── Private filter-building helpers ─────────────────────────────────────
 
     /** Build a crop filter expression for an aspect ratio. */
-    private fun buildCropFilterExpr(op: EditOperation.Crop): String? = when (op.aspectRatio) {
-        "16:9" -> "crop='trunc(min(iw\\,ih*16/9)/2)*2':'trunc(min(ih\\,iw*9/16)/2)*2',setsar=1"
-        "9:16" -> "crop='trunc(min(iw\\,ih*9/16)/2)*2':'trunc(min(ih\\,iw*16/9)/2)*2',setsar=1"
-        "1:1"  -> "crop='trunc(min(iw\\,ih)/2)*2':'trunc(min(iw\\,ih)/2)*2',setsar=1"
-        "Custom" -> {
+    private fun buildCropFilterExpr(op: EditOperation.Crop): String? {
+        val hasCustomBounds = op.aspectRatio == "Custom" || op.xFraction > 0f || op.yFraction > 0f || op.wFraction < 1f || op.hFraction < 1f
+        if (hasCustomBounds) {
             val w = String.format(java.util.Locale.US, "trunc(iw*%.4f/2)*2", op.wFraction)
             val h = String.format(java.util.Locale.US, "trunc(ih*%.4f/2)*2", op.hFraction)
             val x = String.format(java.util.Locale.US, "trunc(iw*%.4f/2)*2", op.xFraction)
             val y = String.format(java.util.Locale.US, "trunc(ih*%.4f/2)*2", op.yFraction)
-            "crop=w=$w:h=$h:x='min($x\\,iw-($w))':y='min($y\\,ih-($h))',setsar=1"
+            return "crop=w=$w:h=$h:x='min($x\\,iw-($w))':y='min($y\\,ih-($h))',setsar=1"
         }
-        else   -> null
+
+        return when (op.aspectRatio) {
+            "16:9" -> "crop='trunc(min(iw\\,ih*16/9)/2)*2':'trunc(min(ih\\,iw*9/16)/2)*2',setsar=1"
+            "9:16" -> "crop='trunc(min(iw\\,ih*9/16)/2)*2':'trunc(min(ih\\,iw*16/9)/2)*2',setsar=1"
+            "1:1"  -> "crop='trunc(min(iw\\,ih)/2)*2':'trunc(min(iw\\,ih)/2)*2',setsar=1"
+            else   -> null
+        }
     }
 
     /** Build a drawtext filter expression for a text operation. */
