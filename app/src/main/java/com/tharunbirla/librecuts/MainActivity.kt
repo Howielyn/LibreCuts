@@ -210,6 +210,15 @@ class MainActivity : AppCompatActivity() {
 
         updateLanguageUI()
 
+        // Initialize Haptic Feedback preference
+        updateHapticFeedbackUI()
+
+        binding.btnToggleHapticFeedback.setBounceClickListener {
+            val current = prefs.getBoolean("haptic_feedback", true)
+            prefs.edit().putBoolean("haptic_feedback", !current).apply()
+            updateHapticFeedbackUI()
+        }
+
         // Initialize Fullscreen Editor preference
         updateFullscreenEditorUI()
 
@@ -286,6 +295,16 @@ class MainActivity : AppCompatActivity() {
                 "et" -> binding.tvCurrentLanguage.text = "Eesti"
                 else -> binding.tvCurrentLanguage.text = currentLocales.get(0)?.displayLanguage
             }
+        }
+    }
+
+    private fun updateHapticFeedbackUI() {
+        val prefs = getSharedPreferences("librecuts_prefs", MODE_PRIVATE)
+        val isEnabled = prefs.getBoolean("haptic_feedback", true)
+        binding.tvCurrentHapticFeedback.text = if (isEnabled) {
+            getString(R.string.str_haptic_enabled_desc)
+        } else {
+            getString(R.string.str_haptic_disabled_desc)
         }
     }
 

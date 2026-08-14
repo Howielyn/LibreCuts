@@ -9,6 +9,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.tharunbirla.librecuts.utils.performAppHapticFeedback
 
 class TrackTrimView @JvmOverloads constructor(
     context: Context,
@@ -107,9 +108,9 @@ class TrackTrimView @JvmOverloads constructor(
                 }
                 
                 if (value) {
-                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                    performAppHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                 } else {
-                    performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    performAppHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                 }
             }
         }
