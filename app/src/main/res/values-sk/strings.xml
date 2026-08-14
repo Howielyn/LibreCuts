@@ -173,4 +173,7 @@
     <string name="toast_failed_to_set_export_folder">Nepodarilo sa nastaviť priečinok na export</string>
     <string name="str_video_export_folder">Priečinok pre export videa</string>
     <string name="str_audio_export_folder">Priečinok pre export zvukových súborov</string>
+    <string name="str_haptic_feedback">Haptická odozva</string>
+    <string name="str_haptic_enabled_desc">Zapnuté (Vibrácie v aplikácii sú aktívne)</string>
+    <string name="str_haptic_disabled_desc">Vypnuté (Vibrácie v aplikácii sú stlmené)</string>
 </resources>

@@ -374,6 +374,41 @@
                         android:textSize="13sp" />
                 </LinearLayout>
 
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/outlineVariant"
+                    android:layout_marginVertical="4dp" />
+
+                <!-- Haptic Feedback Setting -->
+                <LinearLayout
+                    android:id="@+id/btnToggleHapticFeedback"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingVertical="10dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/str_haptic_feedback"
+                        android:textColor="@color/textColor"
+                        android:textSize="15sp"
+                        android:fontFamily="sans-serif-medium" />
+
+                    <TextView
+                        android:id="@+id/tvCurrentHapticFeedback"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/str_haptic_enabled_desc"
+                        android:textColor="@color/iconSecondary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- Editor & Rendering Bento Card -->

@@ -173,4 +173,7 @@
     <string name="str_draw">Joonista</string>
     <string name="str_encoder_software_desc">Põhiprotsessoriga loodud parima ühilduvusega väljund</string>
     <string name="str_encoder_hardware_desc">Graafikaprotsessoriga kiirelt loodud väljund</string>
+    <string name="str_haptic_feedback">Haptiline tagasiside</string>
+    <string name="str_haptic_enabled_desc">Sisse lülitatud (Rakendusesisesed vibratsioonid aktiivsed)</string>
+    <string name="str_haptic_disabled_desc">Välja lülitatud (Rakendusesisesed vibratsioonid vaigistatud)</string>
 </resources>

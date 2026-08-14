@@ -173,4 +173,7 @@
     <string name="str_handwriting">Handwriting</string>
     <string name="str_brush_size">Brush Size</string>
     <string name="str_clear">Clear</string>
+    <string name="str_haptic_feedback">Haptic Feedback</string>
+    <string name="str_haptic_enabled_desc">Enabled (In-app vibrations active)</string>
+    <string name="str_haptic_disabled_desc">Disabled (In-app vibrations muted)</string>
 </resources>

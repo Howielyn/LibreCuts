@@ -16,6 +16,7 @@ import android.os.Bundle
 import com.tharunbirla.librecuts.utils.setBounceClickListener
 import com.tharunbirla.librecuts.utils.performHapticLight
 import com.tharunbirla.librecuts.utils.performHapticClick
+import com.tharunbirla.librecuts.utils.performAppHapticFeedback
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -794,7 +795,7 @@ class VideoEditingActivity : AppCompatActivity() {
                             targetMs = target
                             snapped = true
                             if (lastSnappedTargetMs != target) {
-                                timelineHorizontalScroll.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                                timelineHorizontalScroll.performAppHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
                                 lastSnappedTargetMs = target
                             }
                             if (!isUserScrollingTimeline) {
@@ -5646,7 +5647,7 @@ class VideoEditingActivity : AppCompatActivity() {
         initialScrollX = timelineHorizontalScroll.scrollX
 
         timelineHorizontalScroll.requestDisallowInterceptTouchEvent(true)
-        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        view.performAppHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
 
         view.animate()
             .scaleX(1.05f)

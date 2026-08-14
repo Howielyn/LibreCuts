@@ -172,4 +172,7 @@
     <string name="str_handwriting">Handschrift</string>
     <string name="str_brush_size">Pinselgröße</string>
     <string name="str_clear">Leeren</string>
+    <string name="str_haptic_feedback">Haptisches Feedback</string>
+    <string name="str_haptic_enabled_desc">Aktiviert (In-App-Vibrationen aktiv)</string>
+    <string name="str_haptic_disabled_desc">Deaktiviert (In-App-Vibrationen stumm geschaltet)</string>
 </resources>
