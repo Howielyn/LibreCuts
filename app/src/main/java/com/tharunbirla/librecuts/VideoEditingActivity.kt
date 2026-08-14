@@ -1260,8 +1260,9 @@ class VideoEditingActivity : AppCompatActivity() {
                     val existing = viewModel.project.value?.operations
                         ?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Crop>()
                         ?.lastOrNull()
-                    if (existing != null && existing.aspectRatio == "Custom") {
+                    if (existing != null) {
                         viewModel.updateOperation(existing.copy(
+                            aspectRatio = "Custom",
                             xFraction = x,
                             yFraction = y,
                             wFraction = w,
@@ -1676,17 +1677,20 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
                 toolbar.findViewById<LinearLayout>(R.id.frameAspectRatio1)?.setBounceClickListener {
                     cropOverlayView?.visibility = View.GONE
-                    viewModel.addCropOperation("16:9")
+                    val bounds = getPresetCropBounds("16:9")
+                    viewModel.addCropOperation("16:9", bounds.left, bounds.top, bounds.width(), bounds.height())
                     updateCropUi("16:9")
                 }
                 toolbar.findViewById<LinearLayout>(R.id.frameAspectRatio2)?.setBounceClickListener {
                     cropOverlayView?.visibility = View.GONE
-                    viewModel.addCropOperation("9:16")
+                    val bounds = getPresetCropBounds("9:16")
+                    viewModel.addCropOperation("9:16", bounds.left, bounds.top, bounds.width(), bounds.height())
                     updateCropUi("9:16")
                 }
                 toolbar.findViewById<LinearLayout>(R.id.frameAspectRatio3)?.setBounceClickListener {
                     cropOverlayView?.visibility = View.GONE
-                    viewModel.addCropOperation("1:1")
+                    val bounds = getPresetCropBounds("1:1")
+                    viewModel.addCropOperation("1:1", bounds.left, bounds.top, bounds.width(), bounds.height())
                     updateCropUi("1:1")
                 }
                 toolbar.findViewById<LinearLayout>(R.id.frameAspectRatioCustom)?.setBounceClickListener {
@@ -1698,22 +1702,17 @@ class VideoEditingActivity : AppCompatActivity() {
                     val y: Float
                     val w: Float
                     val h: Float
-                    if (existing != null && existing.aspectRatio == "Custom") {
+                    if (existing != null) {
                         x = existing.xFraction
                         y = existing.yFraction
                         w = existing.wFraction
                         h = existing.hFraction
-                    } else if (existing != null) {
-                        val bounds = getPresetCropBounds(existing.aspectRatio)
+                    } else {
+                        val bounds = getPresetCropBounds("16:9")
                         x = bounds.left
                         y = bounds.top
                         w = bounds.width()
                         h = bounds.height()
-                    } else {
-                        x = 0.1f
-                        y = 0.1f
-                        w = 0.8f
-                        h = 0.8f
                     }
                     
                     cropOverlayView?.setCropBounds(x, y, w, h)
@@ -2170,7 +2169,18 @@ class VideoEditingActivity : AppCompatActivity() {
             ?.lastOrNull()
 
         val bounds = when (aspectRatio) {
-            "16:9", "9:16", "1:1" -> getPresetCropBounds(aspectRatio)
+            "16:9", "9:16", "1:1" -> {
+                if (cropOp != null && (cropOp.xFraction > 0f || cropOp.yFraction > 0f || cropOp.wFraction < 1f || cropOp.hFraction < 1f)) {
+                    android.graphics.RectF(
+                        cropOp.xFraction,
+                        cropOp.yFraction,
+                        cropOp.xFraction + cropOp.wFraction,
+                        cropOp.yFraction + cropOp.hFraction
+                    )
+                } else {
+                    getPresetCropBounds(aspectRatio)
+                }
+            }
             "Custom" -> {
                 if (cropOp != null) {
                     android.graphics.RectF(
@@ -3634,11 +3644,16 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun getPresetCropBounds(aspectRatio: String): android.graphics.RectF {
         val rect = android.graphics.RectF(0f, 0f, 1f, 1f)
         val format = if (::player.isInitialized) player.videoFormat else null
-        if (format == null || format.width <= 0 || format.height <= 0) return rect
-        val rotation = format.rotationDegrees
-        val videoWidth = if (rotation == 90 || rotation == 270) format.height else format.width
-        val videoHeight = if (rotation == 90 || rotation == 270) format.width else format.height
-        val videoRatio = videoWidth.toFloat() / videoHeight
+        val videoRatio = if (format != null && format.width > 0 && format.height > 0) {
+            val rotation = format.rotationDegrees
+            val videoWidth = if (rotation == 90 || rotation == 270) format.height else format.width
+            val videoHeight = if (rotation == 90 || rotation == 270) format.width else format.height
+            videoWidth.toFloat() / videoHeight
+        } else if (primaryVideoAspectRatio > 0f) {
+            primaryVideoAspectRatio
+        } else {
+            16f / 9f
+        }
         val targetRatio = when (aspectRatio) {
             "16:9" -> 16f / 9f
             "9:16" -> 9f / 16f
