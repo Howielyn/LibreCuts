@@ -2133,7 +2133,7 @@ class VideoEditingViewModel : ViewModel() {
                 }
                 val defaultEncoder = context?.getSharedPreferences("librecuts_prefs", Context.MODE_PRIVATE)
                     ?.getString("default_encoder", "hardware") ?: "hardware"
-                val videoCodec = if (defaultEncoder == "software") "-c:v libx264" else "-c:v h264_mediacodec -b:v $bitrate"
+                val videoCodec = if (defaultEncoder == "software") "-c:v libx264 -pix_fmt yuv420p" else "-c:v h264_mediacodec -pix_fmt yuv420p -b:v $bitrate"
                 cmd.append(" $videoCodec")
                 
                 if (!audioMuted) {
@@ -2386,7 +2386,7 @@ class VideoEditingViewModel : ViewModel() {
             }
             val defaultEncoder = context?.getSharedPreferences("librecuts_prefs", Context.MODE_PRIVATE)
                 ?.getString("default_encoder", "hardware") ?: "hardware"
-            val videoCodec = if (defaultEncoder == "software") "-c:v libx264" else "-c:v h264_mediacodec -b:v $bitrate"
+            val videoCodec = if (defaultEncoder == "software") "-c:v libx264 -pix_fmt yuv420p" else "-c:v h264_mediacodec -pix_fmt yuv420p -b:v $bitrate"
             // If there are no video filters, we still need to apply the scale and fps output params
             if (!hasVideoFilters) {
                 cmd.append(" $videoCodec -vf scale=-2:${_exportResolution.value} -r ${_exportFps.value}")
@@ -2456,7 +2456,7 @@ class VideoEditingViewModel : ViewModel() {
         }
 
         // Fast preview settings
-        cmd.append(" -c:v h264_mediacodec -b:v 1500k -c:a aac")
+        cmd.append(" -c:v h264_mediacodec -pix_fmt yuv420p -b:v 1500k -c:a aac")
         if (outputDuration != null) {
             cmd.append(" -t $outputDuration")
         }

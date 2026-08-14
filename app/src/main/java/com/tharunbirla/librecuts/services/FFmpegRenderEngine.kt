@@ -140,17 +140,19 @@ class FFmpegRenderEngine(private val context: Context) {
                 Log.d(TAG, "FFmpeg completed with return code: $returnCode")
 
                 val logs = sessionLogBuffers.remove(session.sessionId)?.toList()
+                val outputPath = extractOutputPath(command)
+                val missingVideo = isMissingVideoStream(command, logs, outputPath)
 
-                if (ReturnCode.isSuccess(returnCode)) {
+                if (ReturnCode.isSuccess(returnCode) && !missingVideo) {
                     RenderResult.Success(
-                        outputPath = extractOutputPath(command),
+                        outputPath = outputPath,
                         session = session
                     )
                 } else {
                     val diagnosticLog = createDiagnosticReport(context, command, returnCode, session, logs)
 
                     if (command.contains("h264_mediacodec")) {
-                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error:\n$diagnosticLog")
+                        Log.w(TAG, "Hardware encoder h264_mediacodec failed or produced no video stream. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = command.replace("h264_mediacodec", "libx264")
                         return@withContext executeCommand(fallbackCommand)
                     } else if (command.contains("libx264")) {
@@ -289,17 +291,19 @@ class FFmpegRenderEngine(private val context: Context) {
                 Log.d(TAG, "FFmpeg completed with return code: ${returnCode?.getValue()}")
 
                 val logs = sessionLogBuffers.remove(session.sessionId)?.toList()
+                val outputPath = extractOutputPath(ffmpegCommand)
+                val missingVideo = isMissingVideoStream(ffmpegCommand, logs, outputPath)
 
-                if (ReturnCode.isSuccess(returnCode)) {
+                if (ReturnCode.isSuccess(returnCode) && !missingVideo) {
                     RenderResult.Success(
-                        outputPath = extractOutputPath(ffmpegCommand),
+                        outputPath = outputPath,
                         session = session
                     )
                 } else {
                     val diagnosticLog = createDiagnosticReport(context, ffmpegCommand, returnCode, session, logs)
 
                     if (ffmpegCommand.contains("h264_mediacodec")) {
-                        Log.w(TAG, "Hardware encoder h264_mediacodec failed. Falling back to software encoder libx264. Error:\n$diagnosticLog")
+                        Log.w(TAG, "Hardware encoder h264_mediacodec failed or produced no video stream. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = ffmpegCommand.replace("h264_mediacodec", "libx264")
                         return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
                     } else if (ffmpegCommand.contains("libx264")) {
@@ -317,6 +321,36 @@ class FFmpegRenderEngine(private val context: Context) {
                 RenderResult.Failure(error = diagnosticLog)
             }
         }
+    }
+
+    private fun isMissingVideoStream(command: String, logs: List<com.antonkarpenko.ffmpegkit.Log>?, outputPath: String): Boolean {
+        val isVideoExport = (command.contains("-c:v") || command.contains("h264_mediacodec") || command.contains("libx264")) && !command.contains("-vn")
+        if (!isVideoExport) return false
+
+        if (!logs.isNullOrEmpty()) {
+            for (l in logs) {
+                val msg = l.message ?: continue
+                if (msg.contains("video:0kB", ignoreCase = true) ||
+                    msg.contains("video:0.0kB", ignoreCase = true) ||
+                    msg.contains("video: 0kB", ignoreCase = true) ||
+                    msg.contains("video:0B", ignoreCase = true) ||
+                    (msg.contains("frame=") && msg.contains("frame= 0 ") && msg.contains("Lsize="))
+                ) {
+                    Log.w(TAG, "isMissingVideoStream: Detected zero video frames in FFmpeg log line: $msg")
+                    return true
+                }
+            }
+        }
+
+        if (outputPath.isNotBlank()) {
+            val file = File(outputPath)
+            if (!file.exists() || file.length() == 0L) {
+                Log.w(TAG, "isMissingVideoStream: Output file is missing or 0 bytes: $outputPath")
+                return true
+            }
+        }
+
+        return false
     }
 
     /**
