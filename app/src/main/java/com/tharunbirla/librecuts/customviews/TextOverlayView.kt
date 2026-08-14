@@ -381,13 +381,14 @@ class TextOverlayView @JvmOverloads constructor(
             }
             val showBg = true
 
-            val lines = activeCue.text.split("\n")
-            val textHeight = paint.descent() - paint.ascent()
-            
             val rectW = videoRect.width()
             val rectH = videoRect.height()
             val rectL = videoRect.left
             val rectT = videoRect.top
+
+            val maxAvailableWidth = rectW * 0.85f
+            val lines = wrapTextForCanvas(activeCue.text, paint, maxAvailableWidth)
+            val textHeight = paint.descent() - paint.ascent()
             
             val totalBlockHeight = lines.size * textHeight
             val maxLineWidth = lines.maxOfOrNull { paint.measureText(it) } ?: 0f
@@ -464,7 +465,8 @@ class TextOverlayView @JvmOverloads constructor(
                     }
                     TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> {
                         refX = rectL + rectW / 2
-                        refY = rectT + rectH - 24f * scale - (totalBlockHeight / 2f)
+                        val density = context.resources.displayMetrics.density
+                        refY = rectT + rectH - 24f * scale * density - (totalBlockHeight / 2f)
                     }
                     TextPosition.BOTTOM_RIGHT -> {
                         refX = rectL + rectW - 16f * scale - (maxLineWidth / 2f)
@@ -559,5 +561,36 @@ class TextOverlayView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    private fun wrapTextForCanvas(text: String, paint: Paint, maxWidth: Float): List<String> {
+        if (maxWidth <= 0f) return listOf(text)
+        val resultLines = mutableListOf<String>()
+        val rawLines = text.split("\n")
+        for (rawLine in rawLines) {
+            if (paint.measureText(rawLine) <= maxWidth) {
+                resultLines.add(rawLine)
+            } else {
+                val words = rawLine.split(Regex("\\s+"))
+                var currentLine = StringBuilder()
+                for (word in words) {
+                    if (currentLine.isEmpty()) {
+                        currentLine.append(word)
+                    } else {
+                        val testLine = "$currentLine $word"
+                        if (paint.measureText(testLine) <= maxWidth) {
+                            currentLine.append(" ").append(word)
+                        } else {
+                            resultLines.add(currentLine.toString())
+                            currentLine = StringBuilder(word)
+                        }
+                    }
+                }
+                if (currentLine.isNotEmpty()) {
+                    resultLines.add(currentLine.toString())
+                }
+            }
+        }
+        return if (resultLines.isEmpty()) listOf(text) else resultLines
     }
 }

@@ -1355,7 +1355,8 @@ class VideoEditingViewModel : ViewModel() {
         fontFilePath: String?,
         inputLabel: String = "[0:v]",
         imageInputIndices: List<Pair<Int, EditOperation.AddImageOverlay>> = emptyList(),
-        density: Float = 1.0f
+        density: Float = 1.0f,
+        sourceVideoHeight: Int = 1080
     ): Pair<List<String>, String> {
         val stages = mutableListOf<String>()
         var currentLabel = inputLabel
@@ -1490,12 +1491,17 @@ class VideoEditingViewModel : ViewModel() {
                     }
                 }
                 is EditOperation.AddSubtitles -> {
+                    val effectiveDensity = if (density > 0.5f) density else 2.75f
+                    val refHeight = if (sourceVideoHeight > 0) sourceVideoHeight.toFloat() else 1080f
+                    val scaledFontSize = (op.fontSize * effectiveDensity * (refHeight / 1080f)).toInt().coerceAtLeast(16)
+                    val boxBorderW = (8f * effectiveDensity * (refHeight / 1080f)).toInt().coerceAtLeast(4)
+                    val marginY = (24f * effectiveDensity * (refHeight / 1080f)).toInt()
+                    val lineSpacing = (scaledFontSize * 1.25f).toInt()
+                    
                     for (cue in op.cues) {
-                        val escapedText = cue.text
-                            .replace("\\", "\\\\")
-                            .replace("'", "\\\\'")
-                            .replace(":", "\\:")
-                            .replace("\n", "\n")
+                        val lines = getWrappedSubtitleLines(cue.text, op.fontSize, effectiveDensity)
+                        val totalBlockHeight = lines.size * lineSpacing
+                        val enablePart = buildEnableExpr(cue.startTimeMs, cue.endTimeMs)
                         
                         val fontToUse = op.fontPath ?: fontFilePath
                         val fontPart = if (!fontToUse.isNullOrBlank()) {
@@ -1507,33 +1513,40 @@ class VideoEditingViewModel : ViewModel() {
                         } else {
                             ""
                         }
-                        
-                        val enablePart = buildEnableExpr(cue.startTimeMs, cue.endTimeMs)
 
-                        val posPart = if (op.hasCustomPosition()) {
-                            "x='(w*${op.relativeX})-(tw/2)':y='(h*${op.relativeY})-(th/2)'"
-                        } else {
-                            when (op.position) {
-                                TextPosition.TOP_LEFT -> "x=24:y=24"
-                                TextPosition.TOP_CENTER, TextPosition.CENTER_TOP -> "x=(w-tw)/2:y=24"
-                                TextPosition.TOP_RIGHT -> "x=w-tw-24:y=24"
-                                TextPosition.CENTER_LEFT -> "x=24:y=(h-th)/2"
-                                TextPosition.CENTER -> "x=(w-tw)/2:y=(h-th)/2"
-                                TextPosition.CENTER_RIGHT -> "x=w-tw-24:y=(h-th)/2"
-                                TextPosition.BOTTOM_LEFT -> "x=24:y=h-th-24"
-                                TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> "x=(w-tw)/2:y=h-th-24"
-                                TextPosition.BOTTOM_RIGHT -> "x=w-tw-24:y=h-th-24"
+                        for ((lineIdx, lineText) in lines.withIndex()) {
+                            val escapedLine = lineText
+                                .replace("\\", "\\\\")
+                                .replace("'", "\\\\'")
+                                .replace(":", "\\:")
+
+                            val lineOffset = lineIdx * lineSpacing
+
+                            val posPart = if (op.hasCustomPosition()) {
+                                val startY = "(h*${op.relativeY})-${totalBlockHeight / 2}"
+                                "x='(w*${op.relativeX})-(tw/2)':y='$startY+$lineOffset'"
+                            } else {
+                                when (op.position) {
+                                    TextPosition.TOP_LEFT -> "x=24:y=24+$lineOffset"
+                                    TextPosition.TOP_CENTER, TextPosition.CENTER_TOP -> "x=(w-tw)/2:y=24+$lineOffset"
+                                    TextPosition.TOP_RIGHT -> "x=w-tw-24:y=24+$lineOffset"
+                                    TextPosition.CENTER_LEFT -> "x=24:y=(h-${totalBlockHeight})/2+$lineOffset"
+                                    TextPosition.CENTER -> "x=(w-tw)/2:y=(h-${totalBlockHeight})/2+$lineOffset"
+                                    TextPosition.CENTER_RIGHT -> "x=w-tw-24:y=(h-${totalBlockHeight})/2+$lineOffset"
+                                    TextPosition.BOTTOM_LEFT -> "x=24:y=h-$marginY-$totalBlockHeight+$lineOffset"
+                                    TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> "x=(w-tw)/2:y=h-$marginY-$totalBlockHeight+$lineOffset"
+                                    TextPosition.BOTTOM_RIGHT -> "x=w-tw-24:y=h-$marginY-$totalBlockHeight+$lineOffset"
+                                }
                             }
-                        }
 
-                        val boxPart = ":box=1:boxcolor='0x00000080':boxborderw=8"
-                        
-                        val filterExpr = "drawtext=${fontPart}text='$escapedText':fontcolor='white':fontsize=${op.fontSize}:${posPart}${boxPart}$enablePart"
-                        
-                        val nextLabel = "[v$stageIndex]"
-                        stages.add("$currentLabel$filterExpr$nextLabel")
-                        currentLabel = nextLabel
-                        stageIndex++
+                            val boxPart = ":box=1:boxcolor='0x00000080':boxborderw=$boxBorderW"
+                            val filterExpr = "drawtext=${fontPart}text='$escapedLine':fontcolor='white':fontsize=${scaledFontSize}:${posPart}${boxPart}$enablePart"
+                            
+                            val nextLabel = "[v$stageIndex]"
+                            stages.add("$currentLabel$filterExpr$nextLabel")
+                            currentLabel = nextLabel
+                            stageIndex++
+                        }
                     }
                 }
                 else -> {}
@@ -1574,6 +1587,32 @@ class VideoEditingViewModel : ViewModel() {
     ): String? {
         val currentProject = _project.value ?: return null
         val density = context?.resources?.displayMetrics?.density ?: 1.0f
+
+        var sourceVideoWidth = 1280
+        var sourceVideoHeight = 720
+        try {
+            val retriever = android.media.MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(sourceFilePath)
+                val wStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val hStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val rStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                val w = wStr?.toIntOrNull() ?: 1280
+                val h = hStr?.toIntOrNull() ?: 720
+                val r = rStr?.toIntOrNull() ?: 0
+                if (r == 90 || r == 270) {
+                    sourceVideoWidth = h
+                    sourceVideoHeight = w
+                } else {
+                    sourceVideoWidth = w
+                    sourceVideoHeight = h
+                }
+            } finally {
+                retriever.release()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting source video dimensions: ${e.message}")
+        }
 
         if (currentProject.operations.isEmpty()) {
             return "-y -i \"$sourceFilePath\" -c copy \"$outputFilePath\""
@@ -2018,7 +2057,8 @@ class VideoEditingViewModel : ViewModel() {
                 fontFilePath = fontFilePath,
                 inputLabel = currentVideoLabel,
                 imageInputIndices = imageInputIndices,
-                density = density
+                density = density,
+                sourceVideoHeight = sourceVideoHeight
             )
             filterParts.addAll(sourceVideoStages)
             val finalVideoLabel = "[fmtv]"
@@ -2238,7 +2278,8 @@ class VideoEditingViewModel : ViewModel() {
             fontFilePath = fontFilePath,
             inputLabel = currentInputVideoLabel,
             imageInputIndices = imageInputIndices,
-            density = density
+            density = density,
+            sourceVideoHeight = sourceVideoHeight
         )
         filterComplexParts.addAll(videoStages)
 
@@ -2474,7 +2515,8 @@ class VideoEditingViewModel : ViewModel() {
         val (videoStages, finalLabel) = buildVideoFilterStages(
             operations = videoOps,
             fontFilePath = fontFilePath,
-            density = density
+            density = density,
+            sourceVideoHeight = 1080
         )
         if (videoStages.isNotEmpty()) {
             cmd.append(" -filter_complex \"${videoStages.joinToString(";")}\"")
@@ -2570,5 +2612,39 @@ class VideoEditingViewModel : ViewModel() {
         if (_undoStack.value.isNotEmpty()) {
             _hasUnsavedEdits.value = true
         }
+    }
+
+    private fun getWrappedSubtitleLines(text: String, fontSize: Int = 22, density: Float = 2.75f): List<String> {
+        val effectiveDensity = if (density > 0.5f) density else 2.75f
+        val avgCharWidth = 0.52f * fontSize * effectiveDensity
+        val maxCharsPerLine = (918f / avgCharWidth).toInt().coerceIn(10, 60)
+
+        val rawLines = text.split("\n")
+        val resultLines = mutableListOf<String>()
+        for (rawLine in rawLines) {
+            val trimmedRaw = rawLine.trim()
+            if (trimmedRaw.length <= maxCharsPerLine) {
+                if (trimmedRaw.isNotEmpty()) resultLines.add(trimmedRaw)
+            } else {
+                val words = trimmedRaw.split(Regex("\\s+"))
+                var currentLine = StringBuilder()
+                for (word in words) {
+                    if (currentLine.isEmpty()) {
+                        currentLine.append(word)
+                    } else {
+                        if (currentLine.length + 1 + word.length <= maxCharsPerLine) {
+                            currentLine.append(" ").append(word)
+                        } else {
+                            resultLines.add(currentLine.toString().trim())
+                            currentLine = StringBuilder(word)
+                        }
+                    }
+                }
+                if (currentLine.isNotEmpty()) {
+                    resultLines.add(currentLine.toString().trim())
+                }
+            }
+        }
+        return if (resultLines.isEmpty()) listOf(text) else resultLines
     }
 }
