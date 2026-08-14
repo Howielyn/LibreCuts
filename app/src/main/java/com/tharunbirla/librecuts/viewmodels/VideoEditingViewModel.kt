@@ -1490,12 +1490,14 @@ class VideoEditingViewModel : ViewModel() {
                     }
                 }
                 is EditOperation.AddSubtitles -> {
+                    val exportRes = _exportResolution.value
+                    val scaledFontSize = (op.fontSize * 2.75f * (exportRes / 1080f)).toInt().coerceAtLeast(16)
                     for (cue in op.cues) {
-                        val escapedText = cue.text
+                        val wrappedText = wrapTextForFFmpeg(cue.text, 36)
+                        val escapedText = wrappedText
                             .replace("\\", "\\\\")
                             .replace("'", "\\\\'")
                             .replace(":", "\\:")
-                            .replace("\n", "\n")
                         
                         val fontToUse = op.fontPath ?: fontFilePath
                         val fontPart = if (!fontToUse.isNullOrBlank()) {
@@ -1521,14 +1523,14 @@ class VideoEditingViewModel : ViewModel() {
                                 TextPosition.CENTER -> "x=(w-tw)/2:y=(h-th)/2"
                                 TextPosition.CENTER_RIGHT -> "x=w-tw-24:y=(h-th)/2"
                                 TextPosition.BOTTOM_LEFT -> "x=24:y=h-th-24"
-                                TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> "x=(w-tw)/2:y=h-th-24"
+                                TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> "x=(w-tw)/2:y=h-th-48"
                                 TextPosition.BOTTOM_RIGHT -> "x=w-tw-24:y=h-th-24"
                             }
                         }
 
                         val boxPart = ":box=1:boxcolor='0x00000080':boxborderw=8"
                         
-                        val filterExpr = "drawtext=${fontPart}text='$escapedText':fontcolor='white':fontsize=${op.fontSize}:${posPart}${boxPart}$enablePart"
+                        val filterExpr = "drawtext=${fontPart}text='$escapedText':fontcolor='white':fontsize=${scaledFontSize}:${posPart}${boxPart}$enablePart"
                         
                         val nextLabel = "[v$stageIndex]"
                         stages.add("$currentLabel$filterExpr$nextLabel")
@@ -2570,5 +2572,34 @@ class VideoEditingViewModel : ViewModel() {
         if (_undoStack.value.isNotEmpty()) {
             _hasUnsavedEdits.value = true
         }
+    }
+
+    private fun wrapTextForFFmpeg(text: String, maxCharsPerLine: Int = 36): String {
+        val rawLines = text.split("\n")
+        val resultLines = mutableListOf<String>()
+        for (rawLine in rawLines) {
+            if (rawLine.length <= maxCharsPerLine) {
+                resultLines.add(rawLine)
+            } else {
+                val words = rawLine.split(Regex("\\s+"))
+                var currentLine = StringBuilder()
+                for (word in words) {
+                    if (currentLine.isEmpty()) {
+                        currentLine.append(word)
+                    } else {
+                        if (currentLine.length + 1 + word.length <= maxCharsPerLine) {
+                            currentLine.append(" ").append(word)
+                        } else {
+                            resultLines.add(currentLine.toString())
+                            currentLine = StringBuilder(word)
+                        }
+                    }
+                }
+                if (currentLine.isNotEmpty()) {
+                    resultLines.add(currentLine.toString())
+                }
+            }
+        }
+        return resultLines.joinToString("\n")
     }
 }

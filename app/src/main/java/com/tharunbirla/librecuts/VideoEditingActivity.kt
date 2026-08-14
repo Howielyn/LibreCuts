@@ -3061,7 +3061,8 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun exitSubtitlesEditingMode() {
         isSubtitlesEditingActive = false
         textOverlayView?.isSubtitlesEditingActive = false
-        textOverlayView?.subtitleOperation = null
+        val subOp = viewModel.project.value?.operations?.find { it is EditOperation.AddSubtitles } as? EditOperation.AddSubtitles
+        textOverlayView?.subtitleOperation = subOp
         subtitlesEditingToolbar?.visibility = View.GONE
         findViewById<LinearLayout>(R.id.editingControlsWrapper)?.visibility = View.VISIBLE
         findViewById<View>(R.id.timelineContainer)?.visibility = View.VISIBLE
