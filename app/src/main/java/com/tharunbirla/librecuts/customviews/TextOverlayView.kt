@@ -465,7 +465,8 @@ class TextOverlayView @JvmOverloads constructor(
                     }
                     TextPosition.BOTTOM_CENTER, TextPosition.CENTER_BOTTOM -> {
                         refX = rectL + rectW / 2
-                        refY = rectT + rectH - 24f * scale - (totalBlockHeight / 2f)
+                        val density = context.resources.displayMetrics.density
+                        refY = rectT + rectH - 24f * scale * density - (totalBlockHeight / 2f)
                     }
                     TextPosition.BOTTOM_RIGHT -> {
                         refX = rectL + rectW - 16f * scale - (maxLineWidth / 2f)
