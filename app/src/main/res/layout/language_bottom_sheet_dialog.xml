@@ -176,5 +176,69 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <!-- Slovenčina Option -->
+        <LinearLayout
+            android:id="@+id/layoutLangSk"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_aspect_ratio_item"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Slovenčina"
+                android:textColor="@color/textColor"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium" />
+
+            <ImageView
+                android:id="@+id/ivCheckLangSk"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_check_24"
+                app:tint="@color/colorPrimary"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Português (Brasil) Option -->
+        <LinearLayout
+            android:id="@+id/layoutLangPtBr"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_aspect_ratio_item"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Português (Brasil)"
+                android:textColor="@color/textColor"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium" />
+
+            <ImageView
+                android:id="@+id/ivCheckLangPtBr"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_check_24"
+                app:tint="@color/colorPrimary"
+                android:visibility="gone" />
+        </LinearLayout>
+
     </LinearLayout>
 </LinearLayout>

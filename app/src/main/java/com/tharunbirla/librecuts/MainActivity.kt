@@ -289,11 +289,14 @@ class MainActivity : AppCompatActivity() {
         if (currentLocales.isEmpty) {
             binding.tvCurrentLanguage.text = getString(R.string.str_system_default)
         } else {
-            when (currentLocales.get(0)?.language) {
+            val locale = currentLocales.get(0)
+            when (locale?.language) {
                 "en" -> binding.tvCurrentLanguage.text = "English"
                 "de" -> binding.tvCurrentLanguage.text = "Deutsch"
                 "et" -> binding.tvCurrentLanguage.text = "Eesti"
-                else -> binding.tvCurrentLanguage.text = currentLocales.get(0)?.displayLanguage
+                "sk" -> binding.tvCurrentLanguage.text = "Slovenčina"
+                "pt" -> binding.tvCurrentLanguage.text = "Português (Brasil)"
+                else -> binding.tvCurrentLanguage.text = locale?.displayLanguage
             }
         }
     }
@@ -355,18 +358,26 @@ class MainActivity : AppCompatActivity() {
         dialog.setContentView(view)
 
         val currentLocales = AppCompatDelegate.getApplicationLocales()
-        val currentLanguageCode = if (currentLocales.isEmpty) "" else currentLocales.get(0)?.language ?: ""
+        val langTag = if (currentLocales.isEmpty) "" else (currentLocales.get(0)?.toLanguageTag() ?: "")
+        val langCode = if (currentLocales.isEmpty) "" else (currentLocales.get(0)?.language ?: "")
 
         val ivCheckLangSystem = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangSystem)
         val ivCheckLangEn = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangEn)
         val ivCheckLangDe = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangDe)
         val ivCheckLangEt = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangEt)
+        val ivCheckLangSk = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangSk)
+        val ivCheckLangPtBr = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangPtBr)
 
-        when (currentLanguageCode) {
-            "en" -> ivCheckLangEn.visibility = View.VISIBLE
-            "de" -> ivCheckLangDe.visibility = View.VISIBLE
-            "et" -> ivCheckLangEt.visibility = View.VISIBLE
-            else -> ivCheckLangSystem.visibility = View.VISIBLE
+        if (langTag.startsWith("pt", ignoreCase = true)) {
+            ivCheckLangPtBr?.visibility = View.VISIBLE
+        } else {
+            when (langCode) {
+                "en" -> ivCheckLangEn?.visibility = View.VISIBLE
+                "de" -> ivCheckLangDe?.visibility = View.VISIBLE
+                "et" -> ivCheckLangEt?.visibility = View.VISIBLE
+                "sk" -> ivCheckLangSk?.visibility = View.VISIBLE
+                else -> ivCheckLangSystem?.visibility = View.VISIBLE
+            }
         }
 
         view.findViewById<View>(R.id.btnCloseSheet)?.setBounceClickListener {
@@ -397,6 +408,14 @@ class MainActivity : AppCompatActivity() {
 
         view.findViewById<View>(R.id.layoutLangEt)?.setBounceClickListener {
             setLanguage("et")
+        }
+
+        view.findViewById<View>(R.id.layoutLangSk)?.setBounceClickListener {
+            setLanguage("sk")
+        }
+
+        view.findViewById<View>(R.id.layoutLangPtBr)?.setBounceClickListener {
+            setLanguage("pt-BR")
         }
 
         dialog.show()

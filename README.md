@@ -66,6 +66,11 @@ Help resist this gatekeeping and support the movement at [keepandroidopen.org](h
 - **Canvas Background** - Add a blurred background or a solid color for a cohesive look when your video aspect ratio does not match the project frame.
 - **Reverse** - Reverse video playback.
 - **Timeline Organization** - Enhanced editing with snapping functionality, overlay duplication, freeze frame actions, and improved UI visual styling.
+- **Project Save & Import** - Save non-destructive project state as a `.lcprj` file to save and reopen editable project files anytime.
+- **Freehand Drawing** - Draw directly on top of video clips with custom brush color and stroke controls.
+- **Custom Fonts** - Import `.ttf` or `.otf` font files to customize text overlay typography.
+- **Fullscreen Preview** - Switch to true fullscreen preview mode with expanded timeline view and overlay controls.
+- **Android 13+ Themed Icon** - Supports native monochrome adaptive icons for Android 13+ system themes.
 - **Hardware Acceleration** - Super-fast and reliable video exports using device hardware-accelerated `h264_mediacodec` encoding (with seamless automatic fallback to software encoding for maximum device compatibility) and accurate FFmpeg progress calculation.
 
 ## 📱 Screenshots
