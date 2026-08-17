@@ -4368,7 +4368,7 @@ class VideoEditingActivity : AppCompatActivity() {
                         val itemUri = if (cachedFile != null) Uri.fromFile(cachedFile) else uri
                         com.tharunbirla.librecuts.models.EditOperation.MergeItem(
                             uri = itemUri,
-                            durationMs = 5000L,
+                            durationMs = 600000L,
                             trimStartMs = 0L,
                             trimEndMs = 5000L,
                             isImage = true
@@ -5612,7 +5612,7 @@ class VideoEditingActivity : AppCompatActivity() {
                         ?: File(cacheDir, "main_image_${System.currentTimeMillis()}$ext")
                     tempInputFile = cachedImageFile
                     videoFileName = cachedImageFile.name
-                    originalMainVideoDurationMs = 5000L
+                    originalMainVideoDurationMs = 600000L
 
                     try {
                         val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -6529,29 +6529,46 @@ class VideoEditingActivity : AppCompatActivity() {
         val adapter = FrameAdapter(emptyList(), dialogItemWidth)
         recyclerView.adapter = adapter
 
-        // Extract frames for the entire video clip
-        val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
-        if (job != null) {
-            activeRenderJobs.add(job)
-            recyclerView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) {}
-                override fun onViewDetachedFromWindow(v: View) {
-                    job.cancel()
-                    activeRenderJobs.remove(job)
+        val isPhoto = item.isImage || isImageUri(item.uri)
+        val maxDur = if (isPhoto) maxOf(item.durationMs, 600000L) else item.durationMs
+
+        if (isPhoto) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val bmp = try {
+                    contentResolver.openInputStream(item.uri)?.use { input ->
+                        android.graphics.BitmapFactory.decodeStream(input)
+                    }
+                } catch (e: Exception) { null }
+                if (bmp != null) {
+                    withContext(Dispatchers.Main) {
+                        adapter.updateFrames(List(15) { bmp })
+                    }
                 }
-            })
+            }
+        } else {
+            val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
+            if (job != null) {
+                activeRenderJobs.add(job)
+                recyclerView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {}
+                    override fun onViewDetachedFromWindow(v: View) {
+                        job.cancel()
+                        activeRenderJobs.remove(job)
+                    }
+                })
+            }
         }
 
         // Configure custom TrackTrimView as the premium Range Slider
         trimTrackView.isMainVideoTrack = true
         trimTrackView.isTrimEnabled = true
         trimTrackView.trackColor = android.graphics.Color.TRANSPARENT
-        trimTrackView.maxDurationMs = item.durationMs
-        trimTrackView.customMsPerPixel = item.durationMs.toFloat() / dialogRecyclerViewWidth
+        trimTrackView.maxDurationMs = maxDur
+        trimTrackView.customMsPerPixel = maxDur.toFloat() / dialogRecyclerViewWidth
 
         trimTrackView.activeStartMs = item.trimStartMs
         trimTrackView.activeEndMs = item.trimEndMs
-        trimTrackView.setRange(item.durationMs, item.trimStartMs, item.trimEndMs)
+        trimTrackView.setRange(maxDur, item.trimStartMs, item.trimEndMs)
 
         var currentStart = item.trimStartMs
         var currentEnd = item.trimEndMs
