@@ -129,7 +129,7 @@ class FFmpegRenderEngine(private val context: Context) {
      * Execute an FFmpeg command and return the result.
      * Runs on IO dispatcher for non-blocking execution.
      */
-    suspend fun executeCommand(command: String): RenderResult {
+    suspend fun executeCommand(command: String, isRetry: Boolean = false): RenderResult {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "Executing FFmpeg command: $command")
@@ -151,14 +151,14 @@ class FFmpegRenderEngine(private val context: Context) {
                 } else {
                     val diagnosticLog = createDiagnosticReport(context, command, returnCode, session, logs)
 
-                    if (command.contains("h264_mediacodec")) {
+                    if (!isRetry && command.contains("h264_mediacodec")) {
                         Log.w(TAG, "Hardware encoder h264_mediacodec failed or produced no video stream. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = command.replace("h264_mediacodec", "libx264")
-                        return@withContext executeCommand(fallbackCommand)
-                    } else if (command.contains("libx264")) {
+                        return@withContext executeCommand(fallbackCommand, isRetry = true)
+                    } else if (!isRetry && command.contains("libx264")) {
                         Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error:\n$diagnosticLog")
                         val fallbackCommand = command.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
-                        return@withContext executeCommand(fallbackCommand)
+                        return@withContext executeCommand(fallbackCommand, isRetry = true)
                     }
 
                     Log.e(TAG, "FFmpeg error:\n$diagnosticLog")
@@ -245,7 +245,8 @@ class FFmpegRenderEngine(private val context: Context) {
     suspend fun exportFinal(
         ffmpegCommand: String,
         totalDurationSecs: Double? = null,
-        onProgress: ((Int) -> Unit)? = null
+        onProgress: ((Int) -> Unit)? = null,
+        isRetry: Boolean = false
     ): RenderResult {
         return withContext(Dispatchers.IO) {
             try {
@@ -302,14 +303,14 @@ class FFmpegRenderEngine(private val context: Context) {
                 } else {
                     val diagnosticLog = createDiagnosticReport(context, ffmpegCommand, returnCode, session, logs)
 
-                    if (ffmpegCommand.contains("h264_mediacodec")) {
+                    if (!isRetry && ffmpegCommand.contains("h264_mediacodec")) {
                         Log.w(TAG, "Hardware encoder h264_mediacodec failed or produced no video stream. Falling back to software encoder libx264. Error:\n$diagnosticLog")
                         val fallbackCommand = ffmpegCommand.replace("h264_mediacodec", "libx264")
-                        return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
-                    } else if (ffmpegCommand.contains("libx264")) {
+                        return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress, isRetry = true)
+                    } else if (!isRetry && ffmpegCommand.contains("libx264")) {
                         Log.w(TAG, "Software encoder libx264 failed. Falling back to hardware encoder h264_mediacodec. Error:\n$diagnosticLog")
                         val fallbackCommand = ffmpegCommand.replace("-c:v libx264", "-c:v h264_mediacodec -b:v 8M").replace("libx264", "h264_mediacodec")
-                        return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress)
+                        return@withContext exportFinal(fallbackCommand, totalDurationSecs, onProgress, isRetry = true)
                     }
 
                     Log.e(TAG, "FFmpeg error:\n$diagnosticLog")
@@ -648,12 +649,15 @@ class FFmpegRenderEngine(private val context: Context) {
         durationMs: Long,
         outputPath: String
     ): RenderResult {
-        val imagePath = FFmpegKitConfig.getSafParameterForRead(context, imageUri)
+        // getSafParameterForRead returns saf:X which confuses the image2 demuxer.
+        // We force copy to a cache file so FFmpeg sees a standard file path.
+        val imagePath = resolveUriToFilePath(imageUri, forceCopy = true)
+            ?: return RenderResult.Failure("Could not read image file. URI: $imageUri")
         val durationSecs = durationMs / 1000f
-        
-        // Use a standard frame rate (e.g., 30 fps), loop the image, add a silent audio track, and output as standard mp4
-        // The scale filter ensures the width and height are divisible by 2, which is required by libx264
-        val command = "-f image2 -loop 1 -framerate 30 -i \"$imagePath\" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:v libx264 -t $durationSecs -pix_fmt yuv420p -c:a aac -shortest \"$outputPath\""
+
+        // Use 30 fps with hardware acceleration (h264_mediacodec) for instant encoding, falling back to libx264 if needed.
+        // The scale filter ensures the width and height are divisible by 2.
+        val command = "-f image2 -loop 1 -framerate 30 -i \"$imagePath\" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:v h264_mediacodec -b:v 4M -t $durationSecs -pix_fmt yuv420p -c:a aac -shortest \"$outputPath\""
         return executeCommand(command)
     }
 
@@ -662,12 +666,63 @@ class FFmpegRenderEngine(private val context: Context) {
         durationMs: Long,
         outputPath: String
     ): RenderResult {
-        val gifPath = FFmpegKitConfig.getSafParameterForRead(context, gifUri)
+        val gifPath = resolveUriToFilePath(gifUri, forceCopy = true)
+            ?: return RenderResult.Failure("Could not read GIF file. URI: $gifUri")
         val durationSecs = durationMs / 1000f
-        
+
         // ignore_loop 0 loops the gif infinitely. We then add a silent audio track and limit duration.
-        val command = "-f gif -ignore_loop 0 -i \"$gifPath\" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:v libx264 -t $durationSecs -pix_fmt yuv420p -c:a aac -shortest \"$outputPath\""
+        // Try hardware encoder first for fast generation.
+        val command = "-f gif -ignore_loop 0 -i \"$gifPath\" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:v h264_mediacodec -b:v 4M -t $durationSecs -pix_fmt yuv420p -c:a aac -shortest \"$outputPath\""
         return executeCommand(command)
+    }
+
+    /**
+     * Resolve any URI to a plain file-system path that FFmpeg can read.
+     *
+     * - file:// URIs  → strip scheme, return path directly
+     * - content:// SAF URIs (ACTION_OPEN_DOCUMENT) → use getSafParameterForRead
+     * - content:// MediaStore URIs → copy to a temp file in cacheDir
+     */
+    private suspend fun resolveUriToFilePath(uri: Uri, forceCopy: Boolean = false): String? = withContext(Dispatchers.IO) {
+        when (uri.scheme) {
+            "file" -> uri.path
+            "content" -> {
+                if (!forceCopy) {
+                    // Try SAF first (works for ACTION_OPEN_DOCUMENT URIs, but custom protocol can confuse some demuxers)
+                    val safPath = try { FFmpegKitConfig.getSafParameterForRead(context, uri) } catch (e: Exception) { null }
+                    if (!safPath.isNullOrBlank()) return@withContext safPath
+                }
+
+                // Fallback (or forced): copy the stream to a temp cache file
+                try {
+                    // Determine a sensible extension from the MIME type
+                    val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val ext = when {
+                        mimeType.contains("gif")  -> ".gif"
+                        mimeType.contains("png")  -> ".png"
+                        mimeType.contains("webp") -> ".webp"
+                        mimeType.contains("heic") || mimeType.contains("heif") -> ".heic"
+                        else -> ".jpg"
+                    }
+                    val tempFile = File(context.cacheDir, "img_input_${System.currentTimeMillis()}$ext")
+                    val inputStream = if (uri.scheme == "file") {
+                        java.io.FileInputStream(uri.path!!)
+                    } else {
+                        context.contentResolver.openInputStream(uri)
+                    } ?: return@withContext null
+                    inputStream.use { input ->
+                        tempFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (tempFile.length() == 0L) { tempFile.delete(); return@withContext null }
+                    Log.d(TAG, "resolveUriToFilePath: copied to ${tempFile.absolutePath} (${tempFile.length()} bytes)")
+                    tempFile.absolutePath
+                } catch (e: Exception) {
+                    Log.e(TAG, "resolveUriToFilePath: failed to copy URI $uri: ${e.message}", e)
+                    null
+                }
+            }
+            else -> null
+        }
     }
 
     private fun extractOutputPath(command: String): String {

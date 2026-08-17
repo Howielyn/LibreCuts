@@ -487,7 +487,8 @@ class MainActivity : AppCompatActivity() {
         Log.d("VideoSelection", "Launching video picker.")
         val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
             initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
-            showCategoryTabs = false
+            showCategoryTabs = true
+            showAudioTab = false
             onMediaSelectedListener = { uri ->
                 try {
                     val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -498,7 +499,7 @@ class MainActivity : AppCompatActivity() {
                 navigateToEditingScreen(uri)
             }
             onBrowseSystemFoldersRequested = {
-                selectVideoLauncher.launch(arrayOf("video/*"))
+                selectVideoLauncher.launch(arrayOf("video/*", "image/*"))
             }
         }
         picker.show(supportFragmentManager, "MediaPickerBottomSheet")
@@ -526,16 +527,16 @@ class MainActivity : AppCompatActivity() {
         val type = intent.type
 
         if (Intent.ACTION_SEND == action && type != null) {
-            if (type.startsWith("video/")) {
+            if (type.startsWith("video/") || type.startsWith("image/")) {
                 (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let { uri ->
-                    Log.d("SharedVideo", "Received SEND intent with video URI: $uri")
+                    Log.d("SharedVideo", "Received SEND intent with media URI: $uri")
                     navigateToEditingScreen(uri)
                 }
             }
         } else if ((Intent.ACTION_VIEW == action || Intent.ACTION_EDIT == action) && type != null) {
-            if (type.startsWith("video/")) {
+            if (type.startsWith("video/") || type.startsWith("image/")) {
                 intent.data?.let { uri ->
-                    Log.d("SharedVideo", "Received VIEW/EDIT intent with video URI: $uri")
+                    Log.d("SharedVideo", "Received VIEW/EDIT intent with media URI: $uri")
                     navigateToEditingScreen(uri)
                 }
             }

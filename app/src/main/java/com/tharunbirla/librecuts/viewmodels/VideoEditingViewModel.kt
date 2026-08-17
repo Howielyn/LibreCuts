@@ -1620,19 +1620,28 @@ class VideoEditingViewModel : ViewModel() {
 
         val operations = currentProject.operations
 
+        val isMainImage = sourceFilePath.endsWith(".png", ignoreCase = true) ||
+                          sourceFilePath.endsWith(".jpg", ignoreCase = true) ||
+                          sourceFilePath.endsWith(".jpeg", ignoreCase = true) ||
+                          sourceFilePath.endsWith(".webp", ignoreCase = true)
+
         // Detect if source video has an audio stream
-        val hasAudio = try {
-            val retriever = android.media.MediaMetadataRetriever()
+        val hasAudio = if (isMainImage) {
+            false
+        } else {
             try {
-                retriever.setDataSource(sourceFilePath)
-                val hasAudioStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
-                hasAudioStr == "yes"
-            } finally {
-                retriever.release()
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(sourceFilePath)
+                    val hasAudioStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+                    hasAudioStr == "yes"
+                } finally {
+                    retriever.release()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking audio in source file: ${e.message}")
+                true // fallback to assuming it has audio
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking audio in source file: ${e.message}")
-            true // fallback to assuming it has audio
         }
 
         // ── Collect operation types ───────────────────────────────────────────
@@ -1673,15 +1682,27 @@ class VideoEditingViewModel : ViewModel() {
             } else {
                 cmd.append(" -i \"$proxyPath\"")
             }
-        } else if (trimOp != null) {
-            val startSecs = trimOp.startMs / 1000.0
-            val duration = (trimOp.endMs - trimOp.startMs) / 1000.0
-            if (mergeOp == null) {
-                outputDuration = duration
-            }
-            cmd.append(" -ss $startSecs -t $duration -i \"$sourceFilePath\"")
         } else {
-            cmd.append(" -i \"$sourceFilePath\"")
+            val isMainImage = sourceFilePath.endsWith(".png", ignoreCase = true) ||
+                              sourceFilePath.endsWith(".jpg", ignoreCase = true) ||
+                              sourceFilePath.endsWith(".jpeg", ignoreCase = true) ||
+                              sourceFilePath.endsWith(".webp", ignoreCase = true)
+            if (isMainImage) {
+                val duration = if (trimOp != null) (trimOp.endMs - trimOp.startMs) / 1000.0 else 5.0
+                if (mergeOp == null) {
+                    outputDuration = duration
+                }
+                cmd.append(" -loop 1 -t $duration -i \"$sourceFilePath\"")
+            } else if (trimOp != null) {
+                val startSecs = trimOp.startMs / 1000.0
+                val duration = (trimOp.endMs - trimOp.startMs) / 1000.0
+                if (mergeOp == null) {
+                    outputDuration = duration
+                }
+                cmd.append(" -ss $startSecs -t $duration -i \"$sourceFilePath\"")
+            } else {
+                cmd.append(" -i \"$sourceFilePath\"")
+            }
         }
         inputIndex++
 
@@ -1698,7 +1719,8 @@ class VideoEditingViewModel : ViewModel() {
                     val startSecs = item.trimStartMs / 1000.0
                     val duration = (item.trimEndMs - item.trimStartMs) / 1000.0
                     
-                    val isImage = videoPath.endsWith(".png", ignoreCase = true) || 
+                    val isImage = item.isImage || 
+                                  videoPath.endsWith(".png", ignoreCase = true) || 
                                   videoPath.endsWith(".jpg", ignoreCase = true) || 
                                   videoPath.endsWith(".jpeg", ignoreCase = true) ||
                                   videoPath.endsWith(".webp", ignoreCase = true)
@@ -1769,40 +1791,58 @@ class VideoEditingViewModel : ViewModel() {
             var mainWidth = 1280
             var mainHeight = 720
             var sourceDurationMs = 0L
-            try {
-                val retriever = android.media.MediaMetadataRetriever()
+
+            if (isMainImage) {
                 try {
-                    retriever.setDataSource(sourceFilePath)
-                    val wStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                    val hStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                    val rStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                    val dStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    val w = wStr?.toIntOrNull() ?: 1280
-                    val h = hStr?.toIntOrNull() ?: 720
-                    val r = rStr?.toIntOrNull() ?: 0
-                    sourceDurationMs = dStr?.toLongOrNull() ?: 0L
-                    if (r == 90 || r == 270) {
-                        mainWidth = h
-                        mainHeight = w
-                    } else {
-                        mainWidth = w
-                        mainHeight = h
+                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(sourceFilePath, opts)
+                    if (opts.outWidth > 0 && opts.outHeight > 0) {
+                        mainWidth = opts.outWidth
+                        mainHeight = opts.outHeight
                     }
-                } finally {
-                    retriever.release()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error extracting image dimensions: ${e.message}")
                 }
-                // FFmpeg requires even dimensions
-                if (mainWidth % 2 != 0) mainWidth -= 1
-                if (mainHeight % 2 != 0) mainHeight -= 1
-            } catch (e: Exception) {
-                Log.e(TAG, "Error extracting dimensions: ${e.message}")
+                sourceDurationMs = 5000L
+            } else {
+                try {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(sourceFilePath)
+                        val wStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                        val hStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                        val rStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                        val dStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val w = wStr?.toIntOrNull() ?: 1280
+                        val h = hStr?.toIntOrNull() ?: 720
+                        val r = rStr?.toIntOrNull() ?: 0
+                        sourceDurationMs = dStr?.toLongOrNull() ?: 0L
+                        if (r == 90 || r == 270) {
+                            mainWidth = h
+                            mainHeight = w
+                        } else {
+                            mainWidth = w
+                            mainHeight = h
+                        }
+                    } finally {
+                        retriever.release()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error extracting dimensions: ${e.message}")
+                }
             }
+
+            // FFmpeg requires even dimensions
+            if (mainWidth % 2 != 0) mainWidth -= 1
+            if (mainHeight % 2 != 0) mainHeight -= 1
 
             val hasAudioArray = BooleanArray(inputCount)
             val durationsArray = DoubleArray(inputCount)
             
-            hasAudioArray[0] = hasAudio
-            durationsArray[0] = if (speedOp?.proxyUri != null) {
+            hasAudioArray[0] = if (isMainImage) false else hasAudio
+            durationsArray[0] = if (isMainImage) {
+                if (trimOp != null) (trimOp.endMs - trimOp.startMs) / 1000.0 else 5.0
+            } else if (speedOp?.proxyUri != null) {
                 val base = if (trimOp != null) (trimOp.endMs - trimOp.startMs) else sourceDurationMs
                 (base / speedOp.speed) / 1000.0
             } else if (trimOp != null) {
