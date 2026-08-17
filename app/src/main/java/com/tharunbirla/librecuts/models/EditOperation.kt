@@ -230,7 +230,8 @@ sealed class EditOperation : Serializable {
         val proxyUri: Uri? = null,
         val isReversed: Boolean = false,
         val isMirrored: Boolean = false,
-        val maskConfig: MaskConfig = MaskConfig()
+        val maskConfig: MaskConfig = MaskConfig(),
+        val isImage: Boolean = false
     ) : Serializable {
         val trimmedDurationMs: Long
             get() = ((trimEndMs - trimStartMs) / speed).toLong()

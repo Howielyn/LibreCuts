@@ -486,9 +486,12 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         }
     }
+    private var photoSequencePreviewImageView: ImageView? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_video_editing)
+        photoSequencePreviewImageView = findViewById(R.id.photoSequencePreviewImageView)
         pixelsPerMs = 0.15f * resources.displayMetrics.density
 
         // Apply system UI visibility based on user setting
@@ -3189,7 +3192,9 @@ class VideoEditingActivity : AppCompatActivity() {
 
     private fun showImageOverlayConfig(imageUri: Uri) {
         lifecycleScope.launch {
-            val extension = getExtensionFromUri(imageUri) ?: ".png"
+            val extension = withContext(Dispatchers.IO) {
+                getExtensionFromUri(imageUri) ?: ".png"
+            }
             val tempImageFile = withContext(Dispatchers.IO) {
                 copyContentUriToTempFile(imageUri, "overlay_image", extension)
             }
@@ -3256,17 +3261,45 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun getExtensionFromUri(uri: Uri): String? {
         val mimeType = contentResolver.getType(uri)
         if (mimeType != null) {
+            // MimeTypeMap doesn't always know HEIC/HEIF — handle them manually
+            when (mimeType.lowercase()) {
+                "image/heic", "image/heif" -> return ".heic"
+                "image/avif" -> return ".avif"
+                "image/webp" -> return ".webp"
+                "image/gif"  -> return ".gif"
+                "image/png"  -> return ".png"
+                "image/jpeg", "image/jpg" -> return ".jpg"
+                "video/mp4"  -> return ".mp4"
+                "video/quicktime" -> return ".mov"
+                "video/x-matroska" -> return ".mkv"
+                "video/3gpp" -> return ".3gp"
+            }
             val mime = android.webkit.MimeTypeMap.getSingleton()
             val ext = mime.getExtensionFromMimeType(mimeType)
             if (ext != null) {
                 return ".$ext"
             }
         }
+        // Try path-based lookup first (works for file:// and content:// that embed filename)
         val path = uri.path ?: return null
         val lastDot = path.lastIndexOf('.')
-        if (lastDot != -1) {
-            return path.substring(lastDot)
+        if (lastDot != -1 && lastDot < path.length - 1) {
+            val ext = path.substring(lastDot)
+            // Only return if it looks like a real extension (e.g. not "/media/123")
+            if (ext.length in 2..5 && ext.all { it == '.' || it.isLetterOrDigit() }) {
+                return ext
+            }
         }
+        // Last resort: ask for the display name (works for MediaStore content:// URIs)
+        try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val name = cursor.getString(0) ?: return@use
+                    val dot = name.lastIndexOf('.')
+                    if (dot != -1 && dot < name.length - 1) return name.substring(dot)
+                }
+            }
+        } catch (_: Exception) {}
         return null
     }
 
@@ -4298,18 +4331,20 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun openFilePickerMerge() {
         val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
             initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
-            showCategoryTabs = false
+            showCategoryTabs = true
+            showAudioTab = false
             onMediaSelectedListener = { uri ->
                 processMergeVideoUris(listOf(uri))
             }
             onBrowseSystemFoldersRequested = {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    type = "video/*"
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
                     addCategory(Intent.CATEGORY_OPENABLE)
                     putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                 }
                 try {
-                    startActivityForResult(Intent.createChooser(intent, "Select Video"), PICK_VIDEO_REQUEST)
+                    startActivityForResult(Intent.createChooser(intent, "Select Media"), PICK_VIDEO_REQUEST)
                 } catch (e: android.content.ActivityNotFoundException) {
                     try {
                         startActivityForResult(intent, PICK_VIDEO_REQUEST)
@@ -4327,30 +4362,43 @@ class VideoEditingActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val mergeItems = withContext(Dispatchers.IO) {
                 selectedVideoUris.mapNotNull { uri ->
-                    val tempFile = copyContentUriToTempFile(uri, "merge_video", ".mp4")
-                    if (tempFile != null) {
-                        val tempUri = Uri.fromFile(tempFile)
-                        val duration = try {
-                            val retriever = MediaMetadataRetriever()
-                            try {
-                                retriever.setDataSource(tempFile.absolutePath)
-                                val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                durStr?.toLong() ?: 0L
-                            } finally {
-                                retriever.release()
+                    if (isImageUri(uri)) {
+                        val ext = if (uri.path?.endsWith(".png", true) == true) ".png" else ".jpg"
+                        val cachedFile = copyContentUriToTempFile(uri, "merge_image", ext)
+                        val itemUri = if (cachedFile != null) Uri.fromFile(cachedFile) else uri
+                        com.tharunbirla.librecuts.models.EditOperation.MergeItem(
+                            uri = itemUri,
+                            durationMs = 5000L,
+                            trimStartMs = 0L,
+                            trimEndMs = 5000L,
+                            isImage = true
+                        )
+                    } else {
+                        val tempFile = copyContentUriToTempFile(uri, "merge_video", ".mp4")
+                        if (tempFile != null) {
+                            val tempUri = Uri.fromFile(tempFile)
+                            val duration = try {
+                                val retriever = MediaMetadataRetriever()
+                                try {
+                                    retriever.setDataSource(tempFile.absolutePath)
+                                    val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                    durStr?.toLong() ?: 0L
+                                } finally {
+                                    retriever.release()
+                                }
+                            } catch (e: Exception) {
+                                0L
                             }
-                        } catch (e: Exception) {
-                            0L
-                        }
-                        com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, duration)
-                    } else null
+                            com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, if (duration > 0) duration else 5000L, isImage = (duration <= 0L))
+                        } else null
+                    }
                 }
             }
             if (mergeItems.isNotEmpty()) {
                 isImportLoading = true
-                showLoading("Importing video...")
+                showLoading("Importing media...")
                 viewModel.addMergeOperation(mergeItems)
-                Toast.makeText(this@VideoEditingActivity, "${mergeItems.size} video(s) added to sequence", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@VideoEditingActivity, "${mergeItems.size} clip(s) added to sequence", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this@VideoEditingActivity, R.string.toast_failed_to_load_selected_video, Toast.LENGTH_SHORT).show()
             }
@@ -4395,14 +4443,16 @@ class VideoEditingActivity : AppCompatActivity() {
     private fun openFilePickerMain() {
         val picker = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet().apply {
             initialMediaType = com.tharunbirla.librecuts.customviews.MediaPickerBottomSheet.MediaType.VIDEO
-            showCategoryTabs = false
+            showCategoryTabs = true
+            showAudioTab = false
             onMediaSelectedListener = { uri ->
                 handleMainSelectedVideo(uri)
             }
             onBrowseSystemFoldersRequested = {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "video/*"
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
                 }
                 mainFilePickerLauncher.launch(intent)
             }
@@ -5185,6 +5235,7 @@ class VideoEditingActivity : AppCompatActivity() {
         val maskMainOp = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.MaskMain>()?.lastOrNull()
         val maskConfig = maskMainOp?.maskConfig ?: com.tharunbirla.librecuts.models.EditOperation.MaskConfig()
 
+        val isMainImg = isImageUri(sourceUri) || (::tempInputFile.isInitialized && isImageUri(Uri.fromFile(tempInputFile)))
         items.add(com.tharunbirla.librecuts.models.EditOperation.MergeItem(
             uri = sourceUri,
             durationMs = sourceDuration,
@@ -5194,7 +5245,8 @@ class VideoEditingActivity : AppCompatActivity() {
             isReversed = isReversed,
             isMirrored = isMirrored,
             proxyUri = proxyUri,
-            maskConfig = maskConfig
+            maskConfig = maskConfig,
+            isImage = isMainImg
         ))
         
         val mergeOp = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.Merge>()?.firstOrNull()
@@ -5400,6 +5452,16 @@ class VideoEditingActivity : AppCompatActivity() {
                 val relTimeMs = currentGlobalPos - accumulatedStartMs
                 val evaluatedMask = sequenceItems[activeClipIndex].maskConfig.evaluatedAt(relTimeMs)
                 mainVideoMaskContainer?.maskConfig = evaluatedMask
+
+                val activeItem = sequenceItems[activeClipIndex]
+                if (activeItem.isImage || isImageUri(activeItem.uri)) {
+                    photoSequencePreviewImageView?.visibility = View.VISIBLE
+                    playerView.visibility = View.INVISIBLE
+                    photoSequencePreviewImageView?.setImageURI(activeItem.uri)
+                } else {
+                    photoSequencePreviewImageView?.visibility = View.GONE
+                    playerView.visibility = View.VISIBLE
+                }
             }
             
             if (activeClipIndex != lastActiveClipIndexForBlur) {
@@ -5526,47 +5588,98 @@ class VideoEditingActivity : AppCompatActivity() {
         }
     }
 
+    private fun isImageUri(uri: Uri): Boolean {
+        val mimeType = try { contentResolver.getType(uri) } catch (e: Exception) { null }
+        if (mimeType != null && mimeType.startsWith("image/")) {
+            return true
+        }
+        val path = uri.path ?: uri.toString()
+        val lower = path.lowercase()
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") ||
+               lower.endsWith(".webp") || lower.endsWith(".gif") || lower.endsWith(".bmp") ||
+               lower.endsWith(".heic") || lower.endsWith(".heif")
+    }
+
     private fun initializeVideoData() {
         lifecycleScope.launch {
             try {
-                val videoFilePath = getFilePathFromUri(videoUri!!)
-                if (videoFilePath != null) {
+                val targetUri = videoUri ?: return@launch
+                val isImg = isImageUri(targetUri)
+
+                if (isImg) {
+                    val ext = if (targetUri.path?.endsWith(".png", true) == true) ".png" else ".jpg"
+                    val cachedImageFile = copyContentUriToTempFile(targetUri, "main_image", ext)
+                        ?: File(cacheDir, "main_image_${System.currentTimeMillis()}$ext")
+                    tempInputFile = cachedImageFile
+                    videoFileName = cachedImageFile.name
+                    originalMainVideoDurationMs = 5000L
+
+                    try {
+                        val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        contentResolver.openInputStream(targetUri)?.use { input ->
+                            android.graphics.BitmapFactory.decodeStream(input, null, options)
+                        }
+                        if (options.outWidth > 0 && options.outHeight > 0) {
+                            primaryVideoAspectRatio = options.outWidth.toFloat() / options.outHeight.toFloat()
+                        } else {
+                            primaryVideoAspectRatio = 16f / 9f
+                        }
+                    } catch (e: Exception) {
+                        primaryVideoAspectRatio = 16f / 9f
+                    }
+
+                    val hasTrim = viewModel.project.value?.operations?.any { it is com.tharunbirla.librecuts.models.EditOperation.Trim } == true
+                    if (!hasTrim) {
+                        viewModel.updateMainVideoTrim(0L, 5000L)
+                    }
+                } else {
+                    val videoFilePath = getFilePathFromUri(targetUri)
+                    if (videoFilePath != null) {
                         tempInputFile = File(videoFilePath)
                         videoFileName = tempInputFile.name
-                        
+                        var dur = 0L
+
                         try {
                             val r = android.media.MediaMetadataRetriever()
                             r.setDataSource(tempInputFile.absolutePath)
-                            originalMainVideoDurationMs = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
-                            
+                            dur = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+                            originalMainVideoDurationMs = dur
+
                             val width = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toInt() ?: 1280
                             val height = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toInt() ?: 720
                             val rotation = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
-                            
+
                             if (rotation == 90 || rotation == 270) {
                                 primaryVideoAspectRatio = height.toFloat() / width.toFloat()
                             } else {
                                 primaryVideoAspectRatio = width.toFloat() / height.toFloat()
                             }
-                            
+
                             r.release()
                         } catch (e: Exception) {
                             Log.e(TAG, "Error getting original duration: ${e.message}")
                             primaryVideoAspectRatio = 16f / 9f
                         }
 
+                        if (dur <= 0L) {
+                            originalMainVideoDurationMs = 5000L
+                            val hasTrim = viewModel.project.value?.operations?.any { it is com.tharunbirla.librecuts.models.EditOperation.Trim } == true
+                            if (!hasTrim) {
+                                viewModel.updateMainVideoTrim(0L, 5000L)
+                            }
+                        }
+
                         // Now load it into ExoPlayer
                         val mediaItem = com.google.android.exoplayer2.MediaItem.fromUri(Uri.fromFile(tempInputFile))
                         player.setMediaItem(mediaItem)
                         player.prepare()
-                        
-                        // isVideoLoaded and renderTracks will be handled by STATE_READY in ExoPlayer listener
-                } else {
-                    showError("Could not process the selected video file.")
-                    isImportLoading = false
-                    isVideoLoaded = true
-                    loadingScreen.visibility = View.GONE
-                    finish()
+                    } else {
+                        showError("Could not process the selected video file.")
+                        isImportLoading = false
+                        isVideoLoaded = true
+                        loadingScreen.visibility = View.GONE
+                        finish()
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -5824,7 +5937,9 @@ class VideoEditingActivity : AppCompatActivity() {
                     val isClipMuted = viewModel.project.value?.operations?.filterIsInstance<com.tharunbirla.librecuts.models.EditOperation.MuteClip>()
                         ?.find { it.index == index }?.isMuted ?: false
 
-                    videoSourceForChunk = if (clipStartUs < clipEndUs) {
+                    videoSourceForChunk = if (item.isImage || isImageUri(item.uri)) {
+                        com.google.android.exoplayer2.source.SilenceMediaSource(chunkDurationMs * 1000L)
+                    } else if (clipStartUs < clipEndUs) {
                         val baseVideoSource = mediaSourceFactory.createMediaSource(videoMediaItem)
                         val clippedSource = com.google.android.exoplayer2.source.ClippingMediaSource(
                             baseVideoSource, clipStartUs, clipEndUs, false, false, true
@@ -5968,16 +6083,31 @@ class VideoEditingActivity : AppCompatActivity() {
                 lm.scrollToPositionWithOffset(0, -(stretchedTrimStartMs * pixelsPerMs).toInt())
             }
 
-            val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
-            if (job != null) {
-                activeRenderJobs.add(job)
-                rv.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                    override fun onViewAttachedToWindow(v: View) {}
-                    override fun onViewDetachedFromWindow(v: View) {
-                        job.cancel()
-                        activeRenderJobs.remove(job)
+            if (item.isImage || isImageUri(item.uri)) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val bmp = try {
+                        contentResolver.openInputStream(item.uri)?.use { input ->
+                            android.graphics.BitmapFactory.decodeStream(input)
+                        }
+                    } catch (e: Exception) { null }
+                    if (bmp != null) {
+                        withContext(Dispatchers.Main) {
+                            adapter.updateFrames(List(15) { bmp })
+                        }
                     }
-                })
+                }
+            } else {
+                val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
+                if (job != null) {
+                    activeRenderJobs.add(job)
+                    rv.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                        override fun onViewAttachedToWindow(v: View) {}
+                        override fun onViewDetachedFromWindow(v: View) {
+                            job.cancel()
+                            activeRenderJobs.remove(job)
+                        }
+                    })
+                }
             }
 
             val trackTrimView = segmentView.findViewById<com.tharunbirla.librecuts.customviews.TrackTrimView>(R.id.segmentTrimTrack)
@@ -6154,7 +6284,8 @@ class VideoEditingActivity : AppCompatActivity() {
                         activeStartMs = op.startTimeMs ?: 0L
                         activeEndMs = op.endTimeMs ?: totalSequenceDuration
                         val actualDuration = op.fileDurationMs ?: 3000L
-                        maxSelectionDurationMs = if (op.isLooping) null else actualDuration
+                        val isImageOverlay = isImageUri(op.imageUri)
+                        maxSelectionDurationMs = if (op.isLooping || isImageOverlay) null else actualDuration
                         setRange(totalSequenceDuration, op.startTimeMs ?: 0L, op.endTimeMs ?: totalSequenceDuration)
                         onTrimChanged = { start, end, _ ->
                             viewModel.updateOperation(op.copy(startTimeMs = start, endTimeMs = end))
@@ -7219,10 +7350,27 @@ class VideoEditingActivity : AppCompatActivity() {
                 extension
             }
             val tempFile = File(cacheDir, "${prefix}_${System.currentTimeMillis()}$ext")
-            contentResolver.openInputStream(contentUri)?.use { input ->
+            val inputStream = if (contentUri.scheme == "file") {
+                // file:// URIs (from fallback directory scanner) must be opened directly;
+                // ContentResolver cannot open them on Android 7+.
+                val filePath = contentUri.path
+                if (filePath != null) java.io.FileInputStream(filePath) else null
+            } else {
+                contentResolver.openInputStream(contentUri)
+            }
+            if (inputStream == null) {
+                Log.e(TAG, "openInputStream returned null for URI: $contentUri")
+                return null
+            }
+            inputStream.use { input ->
                 tempFile.outputStream().use { output -> input.copyTo(output) }
             }
-            Log.d(TAG, "Copied content URI to temp file: ${tempFile.absolutePath}")
+            if (tempFile.length() == 0L) {
+                Log.e(TAG, "Copied file is empty for URI: $contentUri")
+                tempFile.delete()
+                return null
+            }
+            Log.d(TAG, "Copied content URI to temp file: ${tempFile.absolutePath} (${tempFile.length()} bytes)")
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "Error copying content URI to temp file: ${e.message}", e)

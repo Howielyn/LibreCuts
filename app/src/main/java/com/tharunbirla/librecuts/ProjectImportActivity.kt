@@ -396,14 +396,14 @@ class ProjectImportActivity : AppCompatActivity() {
 
     private fun setupRecyclerViews() {
         rvPrimaryVideo.adapter = DependencyAdapter(dependencies.filter { it.type == DependencyType.PRIMARY }) { dep ->
-            replaceMedia(dep, "video/*")
+            replaceMedia(dep, "video/*", "image/*")
         }
         
         val mergeDeps = dependencies.filter { it.type == DependencyType.MERGE }
         if (mergeDeps.isNotEmpty()) {
             layoutMergedHeader.visibility = View.VISIBLE
             rvMergedVideos.visibility = View.VISIBLE
-            rvMergedVideos.adapter = DependencyAdapter(mergeDeps) { dep -> replaceMedia(dep, "video/*") }
+            rvMergedVideos.adapter = DependencyAdapter(mergeDeps) { dep -> replaceMedia(dep, "video/*", "image/*") }
         }
 
         val audioDeps = dependencies.filter { it.type == DependencyType.AUDIO }
