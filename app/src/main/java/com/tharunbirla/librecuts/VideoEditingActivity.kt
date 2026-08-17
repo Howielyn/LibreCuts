@@ -6061,12 +6061,16 @@ class VideoEditingActivity : AppCompatActivity() {
         }
 
         // Render Sequence Track
+        sequenceTrackContainer.clipChildren = false
+        sequenceTrackContainer.clipToPadding = false
         sequenceTrackContainer.removeAllViews()
         var accumulatedStartMs = 0L
         val transitionViewsToLayout = mutableListOf<Pair<View, FrameLayout.LayoutParams>>()
 
         sequenceItems.forEachIndexed { index, item ->
             val segmentView = layoutInflater.inflate(R.layout.item_sequence_segment, sequenceTrackContainer, false) as FrameLayout
+            segmentView.clipChildren = false
+            segmentView.clipToPadding = false
             val segmentWidth = (item.trimmedDurationMs * pixelsPerMs).toInt()
             val segmentLeft = (accumulatedStartMs * pixelsPerMs).toInt()
             val params = FrameLayout.LayoutParams(segmentWidth, ViewGroup.LayoutParams.MATCH_PARENT).apply {
@@ -6085,7 +6089,8 @@ class VideoEditingActivity : AppCompatActivity() {
             val rv = segmentView.findViewById<RecyclerView>(R.id.segmentFrameRecyclerView)
             val lm = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
             rv.layoutManager = lm
-            val itemWidth = maxOf(1, ((stretchedDurationMs * pixelsPerMs) / 15).toInt())
+            val frameSpanMs = if (isPhoto) stretchedMaxDurationMs else stretchedDurationMs
+            val itemWidth = maxOf(1, ((frameSpanMs * pixelsPerMs) / 15).toInt())
             val adapter = FrameAdapter(emptyList(), itemWidth)
             rv.adapter = adapter
             
@@ -6152,6 +6157,41 @@ class VideoEditingActivity : AppCompatActivity() {
                 } else if (deltaR != 0L) {
                     seekToGlobalPosition(clipStartGlobal + rawEnd)
                 }
+
+                val currentTrimmedDur = (rawEnd - rawStart)
+                val newSegmentWidth = (currentTrimmedDur * pixelsPerMs).toInt()
+                
+                segmentView.layoutParams = (segmentView.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = newSegmentWidth
+                }
+                segmentView.requestLayout()
+
+                var runningLeft = (clipStartGlobal * pixelsPerMs).toInt() + newSegmentWidth
+                for (i in (index + 1) until activeSegmentViews.size) {
+                    val nextSegView = activeSegmentViews.getOrNull(i) ?: continue
+                    val itemDur = sequenceItems.getOrNull(i)?.trimmedDurationMs ?: 0L
+                    nextSegView.layoutParams = (nextSegView.layoutParams as FrameLayout.LayoutParams).apply {
+                        leftMargin = runningLeft
+                    }
+                    nextSegView.requestLayout()
+                    runningLeft += (itemDur * pixelsPerMs).toInt()
+                }
+
+                val newTotalDuration = sequenceItems.mapIndexed { idx, it ->
+                    if (idx == index) currentTrimmedDur else it.trimmedDurationMs
+                }.sum()
+                val newTimelineWidth = (newTotalDuration * pixelsPerMs).toInt()
+                
+                timeRulerView.layoutParams = timeRulerView.layoutParams.apply {
+                    width = newTimelineWidth
+                }
+                timeRulerView.setVideoDuration(newTotalDuration)
+                timeRulerView.requestLayout()
+
+                sequenceTrackContainer.layoutParams = sequenceTrackContainer.layoutParams.apply {
+                    width = newTimelineWidth
+                }
+                sequenceTrackContainer.requestLayout()
             }
 
             trackTrimView.onTrimChanged = { startMs, endMs, _ ->
