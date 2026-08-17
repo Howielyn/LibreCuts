@@ -4368,7 +4368,7 @@ class VideoEditingActivity : AppCompatActivity() {
                         val itemUri = if (cachedFile != null) Uri.fromFile(cachedFile) else uri
                         com.tharunbirla.librecuts.models.EditOperation.MergeItem(
                             uri = itemUri,
-                            durationMs = 600000L,
+                            durationMs = 5000L,
                             trimStartMs = 0L,
                             trimEndMs = 5000L,
                             isImage = true
@@ -4390,7 +4390,7 @@ class VideoEditingActivity : AppCompatActivity() {
                                 0L
                             }
                             val isImg = isImageUri(uri) || duration <= 0L
-                            val itemDur = if (isImg) 600000L else duration
+                            val itemDur = if (isImg) 5000L else duration
                             com.tharunbirla.librecuts.models.EditOperation.MergeItem(
                                 uri = tempUri,
                                 durationMs = itemDur,
@@ -5620,7 +5620,7 @@ class VideoEditingActivity : AppCompatActivity() {
                         ?: File(cacheDir, "main_image_${System.currentTimeMillis()}$ext")
                     tempInputFile = cachedImageFile
                     videoFileName = cachedImageFile.name
-                    originalMainVideoDurationMs = 600000L
+                    originalMainVideoDurationMs = 5000L
 
                     try {
                         val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -6075,6 +6075,9 @@ class VideoEditingActivity : AppCompatActivity() {
             segmentView.layoutParams = params
             activeSegmentViews.add(segmentView)
 
+            val isPhoto = item.isImage || isImageUri(item.uri)
+            val effectiveMaxDur = if (isPhoto) maxOf(item.durationMs, maxOf(item.trimEndMs, 600000L)) else item.durationMs
+            val stretchedMaxDurationMs = (effectiveMaxDur / item.speed).toLong()
             val stretchedDurationMs = (item.durationMs / item.speed).toLong()
             val stretchedTrimStartMs = (item.trimStartMs / item.speed).toLong()
             val stretchedTrimEndMs = (item.trimEndMs / item.speed).toLong()
@@ -6091,7 +6094,7 @@ class VideoEditingActivity : AppCompatActivity() {
                 lm.scrollToPositionWithOffset(0, -(stretchedTrimStartMs * pixelsPerMs).toInt())
             }
 
-            if (item.isImage || isImageUri(item.uri)) {
+            if (isPhoto) {
                 lifecycleScope.launch(Dispatchers.IO) {
                     val bmp = try {
                         contentResolver.openInputStream(item.uri)?.use { input ->
@@ -6121,20 +6124,20 @@ class VideoEditingActivity : AppCompatActivity() {
             val trackTrimView = segmentView.findViewById<com.tharunbirla.librecuts.customviews.TrackTrimView>(R.id.segmentTrimTrack)
             trackTrimView.isMainVideoTrack = true
             trackTrimView.trackColor = android.graphics.Color.TRANSPARENT
-            trackTrimView.maxDurationMs = stretchedDurationMs
+            trackTrimView.maxDurationMs = stretchedMaxDurationMs
             trackTrimView.customMsPerPixel = 1.0f / pixelsPerMs
             trackTrimView.isSelectedTrack = (selectedVideoIndex == index)
             trackTrimView.isTrimEnabled = (selectedVideoIndex == index)
             
             // Set the full untrimmed width on TrackTrimView and offset it
-            val trackWidth = (stretchedDurationMs * pixelsPerMs).toInt()
+            val trackWidth = (stretchedMaxDurationMs * pixelsPerMs).toInt()
             trackTrimView.layoutParams = FrameLayout.LayoutParams(trackWidth, ViewGroup.LayoutParams.MATCH_PARENT).apply {
                 leftMargin = -(stretchedTrimStartMs * pixelsPerMs).toInt()
             }
             
             trackTrimView.activeStartMs = stretchedTrimStartMs
             trackTrimView.activeEndMs = stretchedTrimEndMs
-            trackTrimView.setRange(stretchedDurationMs, stretchedTrimStartMs, stretchedTrimEndMs)
+            trackTrimView.setRange(stretchedMaxDurationMs, stretchedTrimStartMs, stretchedTrimEndMs)
             
             // Selection highlight is drawn by TrackTrimView in the foreground
             segmentView.background = null
