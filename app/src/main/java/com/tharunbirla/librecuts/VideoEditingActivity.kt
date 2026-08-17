@@ -4389,7 +4389,15 @@ class VideoEditingActivity : AppCompatActivity() {
                             } catch (e: Exception) {
                                 0L
                             }
-                            com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, if (duration > 0) duration else 5000L, isImage = (duration <= 0L))
+                            val isImg = isImageUri(uri) || duration <= 0L
+                            val itemDur = if (isImg) 600000L else duration
+                            com.tharunbirla.librecuts.models.EditOperation.MergeItem(
+                                uri = tempUri,
+                                durationMs = itemDur,
+                                trimStartMs = 0L,
+                                trimEndMs = if (isImg) 5000L else itemDur,
+                                isImage = isImg
+                            )
                         } else null
                     }
                 }
@@ -6116,7 +6124,7 @@ class VideoEditingActivity : AppCompatActivity() {
             trackTrimView.maxDurationMs = stretchedDurationMs
             trackTrimView.customMsPerPixel = 1.0f / pixelsPerMs
             trackTrimView.isSelectedTrack = (selectedVideoIndex == index)
-            trackTrimView.isTrimEnabled = false
+            trackTrimView.isTrimEnabled = (selectedVideoIndex == index)
             
             // Set the full untrimmed width on TrackTrimView and offset it
             val trackWidth = (stretchedDurationMs * pixelsPerMs).toInt()
@@ -6131,6 +6139,29 @@ class VideoEditingActivity : AppCompatActivity() {
             // Selection highlight is drawn by TrackTrimView in the foreground
             segmentView.background = null
             
+            trackTrimView.onTrimAdjustingWithDelta = { startMs, endMs, deltaL, deltaR ->
+                val rawStart = (startMs * item.speed).toLong()
+                val rawEnd = (endMs * item.speed).toLong()
+                val sequenceItems = getSequenceItems()
+                val clipStartGlobal = sequenceItems.take(index).sumOf { it.trimmedDurationMs }
+                if (deltaL != 0L) {
+                    seekToGlobalPosition(clipStartGlobal + rawStart)
+                } else if (deltaR != 0L) {
+                    seekToGlobalPosition(clipStartGlobal + rawEnd)
+                }
+            }
+
+            trackTrimView.onTrimChanged = { startMs, endMs, _ ->
+                val rawStart = (startMs * item.speed).toLong()
+                val rawEnd = (endMs * item.speed).toLong()
+                if (index == 0) {
+                    viewModel.updateMainVideoTrim(rawStart, rawEnd)
+                } else {
+                    viewModel.updateMergeItemTrim(index - 1, rawStart, rawEnd)
+                }
+                viewModel.project.value?.let { renderTracks(it) }
+            }
+
             trackTrimView.onTrackClicked = {
                 if (selectedVideoIndex == index) {
                     selectedVideoIndex = null
