@@ -4389,7 +4389,15 @@ class VideoEditingActivity : AppCompatActivity() {
                             } catch (e: Exception) {
                                 0L
                             }
-                            com.tharunbirla.librecuts.models.EditOperation.MergeItem(tempUri, if (duration > 0) duration else 5000L, isImage = (duration <= 0L))
+                            val isImg = isImageUri(uri) || duration <= 0L
+                            val itemDur = if (isImg) 5000L else duration
+                            com.tharunbirla.librecuts.models.EditOperation.MergeItem(
+                                uri = tempUri,
+                                durationMs = itemDur,
+                                trimStartMs = 0L,
+                                trimEndMs = if (isImg) 5000L else itemDur,
+                                isImage = isImg
+                            )
                         } else null
                     }
                 }
@@ -6053,12 +6061,16 @@ class VideoEditingActivity : AppCompatActivity() {
         }
 
         // Render Sequence Track
+        sequenceTrackContainer.clipChildren = false
+        sequenceTrackContainer.clipToPadding = false
         sequenceTrackContainer.removeAllViews()
         var accumulatedStartMs = 0L
         val transitionViewsToLayout = mutableListOf<Pair<View, FrameLayout.LayoutParams>>()
 
         sequenceItems.forEachIndexed { index, item ->
             val segmentView = layoutInflater.inflate(R.layout.item_sequence_segment, sequenceTrackContainer, false) as FrameLayout
+            segmentView.clipChildren = false
+            segmentView.clipToPadding = false
             val segmentWidth = (item.trimmedDurationMs * pixelsPerMs).toInt()
             val segmentLeft = (accumulatedStartMs * pixelsPerMs).toInt()
             val params = FrameLayout.LayoutParams(segmentWidth, ViewGroup.LayoutParams.MATCH_PARENT).apply {
@@ -6067,6 +6079,9 @@ class VideoEditingActivity : AppCompatActivity() {
             segmentView.layoutParams = params
             activeSegmentViews.add(segmentView)
 
+            val isPhoto = item.isImage || isImageUri(item.uri)
+            val effectiveMaxDur = if (isPhoto) maxOf(item.durationMs, maxOf(item.trimEndMs, 600000L)) else item.durationMs
+            val stretchedMaxDurationMs = (effectiveMaxDur / item.speed).toLong()
             val stretchedDurationMs = (item.durationMs / item.speed).toLong()
             val stretchedTrimStartMs = (item.trimStartMs / item.speed).toLong()
             val stretchedTrimEndMs = (item.trimEndMs / item.speed).toLong()
@@ -6074,7 +6089,8 @@ class VideoEditingActivity : AppCompatActivity() {
             val rv = segmentView.findViewById<RecyclerView>(R.id.segmentFrameRecyclerView)
             val lm = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
             rv.layoutManager = lm
-            val itemWidth = maxOf(1, ((stretchedDurationMs * pixelsPerMs) / 15).toInt())
+            val frameSpanMs = if (isPhoto) stretchedMaxDurationMs else stretchedDurationMs
+            val itemWidth = maxOf(1, ((frameSpanMs * pixelsPerMs) / 15).toInt())
             val adapter = FrameAdapter(emptyList(), itemWidth)
             rv.adapter = adapter
             
@@ -6083,7 +6099,7 @@ class VideoEditingActivity : AppCompatActivity() {
                 lm.scrollToPositionWithOffset(0, -(stretchedTrimStartMs * pixelsPerMs).toInt())
             }
 
-            if (item.isImage || isImageUri(item.uri)) {
+            if (isPhoto) {
                 lifecycleScope.launch(Dispatchers.IO) {
                     val bmp = try {
                         contentResolver.openInputStream(item.uri)?.use { input ->
@@ -6113,24 +6129,82 @@ class VideoEditingActivity : AppCompatActivity() {
             val trackTrimView = segmentView.findViewById<com.tharunbirla.librecuts.customviews.TrackTrimView>(R.id.segmentTrimTrack)
             trackTrimView.isMainVideoTrack = true
             trackTrimView.trackColor = android.graphics.Color.TRANSPARENT
-            trackTrimView.maxDurationMs = stretchedDurationMs
+            trackTrimView.maxDurationMs = stretchedMaxDurationMs
             trackTrimView.customMsPerPixel = 1.0f / pixelsPerMs
             trackTrimView.isSelectedTrack = (selectedVideoIndex == index)
-            trackTrimView.isTrimEnabled = false
+            trackTrimView.isTrimEnabled = (selectedVideoIndex == index)
             
             // Set the full untrimmed width on TrackTrimView and offset it
-            val trackWidth = (stretchedDurationMs * pixelsPerMs).toInt()
+            val trackWidth = (stretchedMaxDurationMs * pixelsPerMs).toInt()
             trackTrimView.layoutParams = FrameLayout.LayoutParams(trackWidth, ViewGroup.LayoutParams.MATCH_PARENT).apply {
                 leftMargin = -(stretchedTrimStartMs * pixelsPerMs).toInt()
             }
             
             trackTrimView.activeStartMs = stretchedTrimStartMs
             trackTrimView.activeEndMs = stretchedTrimEndMs
-            trackTrimView.setRange(stretchedDurationMs, stretchedTrimStartMs, stretchedTrimEndMs)
+            trackTrimView.setRange(stretchedMaxDurationMs, stretchedTrimStartMs, stretchedTrimEndMs)
             
             // Selection highlight is drawn by TrackTrimView in the foreground
             segmentView.background = null
             
+            trackTrimView.onTrimAdjustingWithDelta = { startMs, endMs, deltaL, deltaR ->
+                val rawStart = (startMs * item.speed).toLong()
+                val rawEnd = (endMs * item.speed).toLong()
+                val sequenceItems = getSequenceItems()
+                val clipStartGlobal = sequenceItems.take(index).sumOf { it.trimmedDurationMs }
+                if (deltaL != 0L) {
+                    seekToGlobalPosition(clipStartGlobal + rawStart)
+                } else if (deltaR != 0L) {
+                    seekToGlobalPosition(clipStartGlobal + rawEnd)
+                }
+
+                val currentTrimmedDur = (rawEnd - rawStart)
+                val newSegmentWidth = (currentTrimmedDur * pixelsPerMs).toInt()
+                
+                segmentView.layoutParams = (segmentView.layoutParams as FrameLayout.LayoutParams).apply {
+                    width = newSegmentWidth
+                }
+                segmentView.requestLayout()
+
+                var runningLeft = (clipStartGlobal * pixelsPerMs).toInt() + newSegmentWidth
+                for (i in (index + 1) until activeSegmentViews.size) {
+                    val nextSegView = activeSegmentViews.getOrNull(i) ?: continue
+                    val itemDur = sequenceItems.getOrNull(i)?.trimmedDurationMs ?: 0L
+                    nextSegView.layoutParams = (nextSegView.layoutParams as FrameLayout.LayoutParams).apply {
+                        leftMargin = runningLeft
+                    }
+                    nextSegView.requestLayout()
+                    runningLeft += (itemDur * pixelsPerMs).toInt()
+                }
+
+                val newTotalDuration = sequenceItems.mapIndexed { idx, it ->
+                    if (idx == index) currentTrimmedDur else it.trimmedDurationMs
+                }.sum()
+                val newTimelineWidth = (newTotalDuration * pixelsPerMs).toInt()
+                
+                timeRulerView.layoutParams = timeRulerView.layoutParams.apply {
+                    width = newTimelineWidth
+                }
+                timeRulerView.setVideoDuration(newTotalDuration)
+                timeRulerView.requestLayout()
+
+                sequenceTrackContainer.layoutParams = sequenceTrackContainer.layoutParams.apply {
+                    width = newTimelineWidth
+                }
+                sequenceTrackContainer.requestLayout()
+            }
+
+            trackTrimView.onTrimChanged = { startMs, endMs, _ ->
+                val rawStart = (startMs * item.speed).toLong()
+                val rawEnd = (endMs * item.speed).toLong()
+                if (index == 0) {
+                    viewModel.updateMainVideoTrim(rawStart, rawEnd)
+                } else {
+                    viewModel.updateMergeItemTrim(index - 1, rawStart, rawEnd)
+                }
+                viewModel.project.value?.let { renderTracks(it) }
+            }
+
             trackTrimView.onTrackClicked = {
                 if (selectedVideoIndex == index) {
                     selectedVideoIndex = null
@@ -6529,29 +6603,46 @@ class VideoEditingActivity : AppCompatActivity() {
         val adapter = FrameAdapter(emptyList(), dialogItemWidth)
         recyclerView.adapter = adapter
 
-        // Extract frames for the entire video clip
-        val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
-        if (job != null) {
-            activeRenderJobs.add(job)
-            recyclerView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) {}
-                override fun onViewDetachedFromWindow(v: View) {
-                    job.cancel()
-                    activeRenderJobs.remove(job)
+        val isPhoto = item.isImage || isImageUri(item.uri)
+        val maxDur = if (isPhoto) maxOf(item.durationMs, 600000L) else item.durationMs
+
+        if (isPhoto) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val bmp = try {
+                    contentResolver.openInputStream(item.uri)?.use { input ->
+                        android.graphics.BitmapFactory.decodeStream(input)
+                    }
+                } catch (e: Exception) { null }
+                if (bmp != null) {
+                    withContext(Dispatchers.Main) {
+                        adapter.updateFrames(List(15) { bmp })
+                    }
                 }
-            })
+            }
+        } else {
+            val job = extractFramesForSegment(item.uri, item.durationMs, adapter)
+            if (job != null) {
+                activeRenderJobs.add(job)
+                recyclerView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {}
+                    override fun onViewDetachedFromWindow(v: View) {
+                        job.cancel()
+                        activeRenderJobs.remove(job)
+                    }
+                })
+            }
         }
 
         // Configure custom TrackTrimView as the premium Range Slider
         trimTrackView.isMainVideoTrack = true
         trimTrackView.isTrimEnabled = true
         trimTrackView.trackColor = android.graphics.Color.TRANSPARENT
-        trimTrackView.maxDurationMs = item.durationMs
-        trimTrackView.customMsPerPixel = item.durationMs.toFloat() / dialogRecyclerViewWidth
+        trimTrackView.maxDurationMs = maxDur
+        trimTrackView.customMsPerPixel = maxDur.toFloat() / dialogRecyclerViewWidth
 
         trimTrackView.activeStartMs = item.trimStartMs
         trimTrackView.activeEndMs = item.trimEndMs
-        trimTrackView.setRange(item.durationMs, item.trimStartMs, item.trimEndMs)
+        trimTrackView.setRange(maxDur, item.trimStartMs, item.trimEndMs)
 
         var currentStart = item.trimStartMs
         var currentEnd = item.trimEndMs
