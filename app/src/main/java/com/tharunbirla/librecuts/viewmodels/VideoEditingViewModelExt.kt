@@ -284,7 +284,11 @@ fun VideoEditingViewModel.deleteSequenceSegment(index: Int) {
                 if (items.isNotEmpty()) {
                     items.removeAt(0)
                     newOps.removeAll { it is EditOperation.Trim || it is EditOperation.SpeedMain || it is EditOperation.ReverseMain }
-                    newOps[mergeIdx] = mergeOp.copy(items = items)
+                    if (items.isEmpty()) {
+                        newOps.remove(mergeOp)
+                    } else {
+                        newOps[newOps.indexOf(mergeOp)] = mergeOp.copy(items = items)
+                    }
                 }
             }
         } else {
@@ -294,7 +298,11 @@ fun VideoEditingViewModel.deleteSequenceSegment(index: Int) {
                 val items = mergeOp.items.toMutableList()
                 if (index - 1 < items.size) {
                     items.removeAt(index - 1)
-                    newOps[mergeIdx] = mergeOp.copy(items = items)
+                    if (items.isEmpty()) {
+                        newOps.removeAt(mergeIdx)
+                    } else {
+                        newOps[mergeIdx] = mergeOp.copy(items = items)
+                    }
                 }
             }
         }
