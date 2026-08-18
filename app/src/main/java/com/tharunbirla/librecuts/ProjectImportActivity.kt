@@ -527,6 +527,16 @@ class ProjectImportActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to save updated project", e)
             }
+            
+            // Check for heavy videos and trigger ProxyGenerationService
+            checkAndTriggerProxy(newSourceUri, "primary")
+            
+            val mergeOps = newOps.filterIsInstance<EditOperation.Merge>()
+            mergeOps.forEach { mergeOp ->
+                mergeOp.items.forEachIndexed { index, item ->
+                    checkAndTriggerProxy(item.uri, "merge_${mergeOp.id}_$index")
+                }
+            }
 
             withContext(Dispatchers.Main) {
                 val intent = Intent(this@ProjectImportActivity, VideoEditingActivity::class.java).apply {
@@ -671,5 +681,39 @@ class ProjectImportActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = items.size
+    }
+
+    private fun checkAndTriggerProxy(uri: Uri, dependencyId: String) {
+        if (isHeavyVideo(uri)) {
+            val intent = Intent(this, com.tharunbirla.librecuts.services.ProxyGenerationService::class.java).apply {
+                putExtra(com.tharunbirla.librecuts.services.ProxyGenerationService.EXTRA_SOURCE_URI, uri.toString())
+                putExtra(com.tharunbirla.librecuts.services.ProxyGenerationService.EXTRA_DEPENDENCY_ID, dependencyId)
+            }
+            androidx.core.content.ContextCompat.startForegroundService(this, intent)
+            Log.d(TAG, "Triggered ProxyGenerationService for heavy video: $uri")
+        }
+    }
+
+    private fun isHeavyVideo(uri: Uri): Boolean {
+        return try {
+            contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(pfd.fileDescriptor)
+                val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val bitrateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                retriever.release()
+
+                val width = widthStr?.toIntOrNull() ?: 0
+                val height = heightStr?.toIntOrNull() ?: 0
+                val bitrate = bitrateStr?.toLongOrNull() ?: 0L
+
+                // Consider heavy if 4K (either dimension >= 2160) or bitrate > 30 Mbps (30000000)
+                width >= 2160 || height >= 2160 || bitrate > 30_000_000L
+            } ?: false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check if video is heavy", e)
+            false
+        }
     }
 }

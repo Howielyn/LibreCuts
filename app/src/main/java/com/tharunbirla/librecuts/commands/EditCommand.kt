@@ -102,3 +102,15 @@ class MutateListCommand(
         return project.copy(operations = ops, lastModifiedAt = System.currentTimeMillis())
     }
 }
+
+/**
+ * A highly generic command allowing complete custom mutation of the entire VideoProject.
+ */
+class MutateProjectCommand(
+    override val description: String = "Modify Project",
+    private val mutateBlock: (VideoProject) -> VideoProject
+) : EditCommand() {
+    override fun execute(project: VideoProject): VideoProject {
+        return mutateBlock(project).copy(lastModifiedAt = System.currentTimeMillis())
+    }
+}

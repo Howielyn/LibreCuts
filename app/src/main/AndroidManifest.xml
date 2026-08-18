@@ -80,6 +80,11 @@
             android:name=".services.ExportService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
+            
+        <service
+            android:name=".services.ProxyGenerationService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
     </application>
 
 </manifest>

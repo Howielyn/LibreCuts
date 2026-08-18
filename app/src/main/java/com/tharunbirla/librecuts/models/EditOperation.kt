@@ -228,6 +228,7 @@ sealed class EditOperation : Serializable {
         val trimEndMs: Long = durationMs,
         val speed: Float = 1.0f,
         val proxyUri: Uri? = null,
+        val scrubProxyUri: Uri? = null,
         val isReversed: Boolean = false,
         val isMirrored: Boolean = false,
         val maskConfig: MaskConfig = MaskConfig(),

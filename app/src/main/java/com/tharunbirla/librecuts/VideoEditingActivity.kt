@@ -221,6 +221,20 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         }
     }
+    
+    private val proxyReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == com.tharunbirla.librecuts.services.ProxyGenerationService.ACTION_PROXY_GENERATED) {
+                val proxyUriStr = intent.getStringExtra(com.tharunbirla.librecuts.services.ProxyGenerationService.EXTRA_PROXY_URI)
+                val dependencyId = intent.getStringExtra(com.tharunbirla.librecuts.services.ProxyGenerationService.EXTRA_DEPENDENCY_ID)
+                if (proxyUriStr != null && dependencyId != null) {
+                    val proxyUri = Uri.parse(proxyUriStr)
+                    viewModel.setScrubProxyUri(dependencyId, proxyUri)
+                    Log.d(TAG, "Scrub proxy set for $dependencyId")
+                }
+            }
+        }
+    }
     private var activeDirectoryTitleView: TextView? = null
     private var activeDirectoryPathView: TextView? = null
 
@@ -541,6 +555,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 addAction(com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_SUCCESS)
                 addAction(com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_FAILURE)
             }
+        )
+        
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(
+            proxyReceiver,
+            android.content.IntentFilter(com.tharunbirla.librecuts.services.ProxyGenerationService.ACTION_PROXY_GENERATED)
         )
 
         // Register back-press callback to prompt for quit confirmation
@@ -5271,6 +5290,7 @@ class VideoEditingActivity : AppCompatActivity() {
             isReversed = isReversed,
             isMirrored = isMirrored,
             proxyUri = proxyUri,
+            scrubProxyUri = viewModel.project.value?.scrubProxyUri,
             maskConfig = maskConfig,
             isImage = isMainImg
         ))
@@ -5950,6 +5970,9 @@ class VideoEditingActivity : AppCompatActivity() {
                     if (item.proxyUri != null) {
                         clipStartUs = offsetInVideoMs * 1000L
                         videoUri = item.proxyUri
+                    } else if (item.scrubProxyUri != null) {
+                        clipStartUs = (item.trimStartMs + offsetInVideoMs) * 1000L
+                        videoUri = item.scrubProxyUri
                     } else {
                         clipStartUs = (item.trimStartMs + offsetInVideoMs) * 1000L
                         videoUri = item.uri
@@ -7632,6 +7655,8 @@ class VideoEditingActivity : AppCompatActivity() {
         if (::sequenceTrackContainer.isInitialized) {
             pendingRenderRunnable?.let { sequenceTrackContainer.removeCallbacks(it) }
         }
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(exportReceiver)
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).unregisterReceiver(proxyReceiver)
         frameExtractionJob?.cancel()
         previewJob?.cancel()
         clearFrameCache()
@@ -7640,7 +7665,9 @@ class VideoEditingActivity : AppCompatActivity() {
         draggableImageOverlay?.deactivate()
         previewFile?.delete()
         super.onDestroy()
-        player.release()
+        if (::player.isInitialized) {
+            player.release()
+        }
         ffmpegEngine.cleanup()
     }
 

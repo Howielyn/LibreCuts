@@ -11,6 +11,7 @@ import java.io.Serializable
 data class VideoProject(
     val sourceUri: Uri,
     val sourceName: String,
+    val scrubProxyUri: Uri? = null,
     val operations: List<EditOperation> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val lastModifiedAt: Long = System.currentTimeMillis()
@@ -92,6 +93,7 @@ data class EditRecipe(
     val projectName: String,
     val sourceUri: Uri,
     val sourceName: String,
+    val scrubProxyUri: Uri? = null,
     val operations: List<EditOperation> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val lastModifiedAt: Long = System.currentTimeMillis()
@@ -104,6 +106,7 @@ data class EditRecipe(
         return VideoProject(
             sourceUri = sourceUri,
             sourceName = sourceName,
+            scrubProxyUri = scrubProxyUri,
             operations = operations,
             createdAt = createdAt,
             lastModifiedAt = lastModifiedAt
@@ -119,6 +122,7 @@ data class EditRecipe(
                 projectName = projectName,
                 sourceUri = project.sourceUri,
                 sourceName = project.sourceName,
+                scrubProxyUri = project.scrubProxyUri,
                 operations = project.operations,
                 createdAt = project.createdAt,
                 lastModifiedAt = project.lastModifiedAt

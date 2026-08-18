@@ -351,3 +351,30 @@ fun VideoEditingViewModel.moveOverlayOperation(id: String, moveUp: Boolean) {
         newOps
     })
 }
+
+fun VideoEditingViewModel.setScrubProxyUri(dependencyId: String, proxyUri: Uri) {
+    executeCommand(MutateProjectCommand("Proxy Generated") { project ->
+        if (dependencyId == "primary") {
+            project.copy(scrubProxyUri = proxyUri)
+        } else if (dependencyId.startsWith("merge_")) {
+            val parts = dependencyId.split("_")
+            if (parts.size >= 3) {
+                val operationId = parts[1]
+                val mergeIndex = parts[2].toIntOrNull() ?: -1
+                
+                val newOps = project.operations.map { op ->
+                    if (op is EditOperation.Merge && op.id == operationId) {
+                        val newItems = op.items.toMutableList()
+                        if (mergeIndex in newItems.indices) {
+                            newItems[mergeIndex] = newItems[mergeIndex].copy(scrubProxyUri = proxyUri)
+                        }
+                        op.copy(items = newItems)
+                    } else op
+                }
+                project.copy(operations = newOps)
+            } else project
+        } else {
+            project
+        }
+    })
+}

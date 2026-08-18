@@ -519,6 +519,15 @@ class FFmpegRenderEngine(private val context: Context) {
         return executeCommand(command)
     }
 
+    suspend fun generateScrubProxy(
+        sourceFilePath: String,
+        outputFilePath: String
+    ): RenderResult {
+        // Fast proxy generation: Downscale to max 720p (keeping aspect ratio), fast preset for encoding speed.
+        val command = "-y -i \"$sourceFilePath\" -vf \"scale='min(1280,iw)':-2\" -c:v libx264 -preset ultrafast -crf 28 -tune fastdecode -c:a copy \"$outputFilePath\""
+        return executeCommand(command)
+    }
+
     suspend fun reverseVideo(
         sourceFilePath: String,
         startMs: Long,
