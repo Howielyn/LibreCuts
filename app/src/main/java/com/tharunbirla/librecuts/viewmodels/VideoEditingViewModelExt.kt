@@ -176,17 +176,27 @@ fun VideoEditingViewModel.setColorFilter(index: Int, filterName: String) {
 
 fun VideoEditingViewModel.updateMergeItemMask(index: Int, maskConfig: EditOperation.MaskConfig) {
     executeCommand(MutateListCommand("Mask Clip") { ops ->
-        val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
-        if (mergeIdx != -1) {
-            val mergeOp = ops[mergeIdx] as EditOperation.Merge
-            val items = mergeOp.items.toMutableList()
-            if (index >= 0 && index < items.size) {
-                items[index] = items[index].copy(maskConfig = maskConfig)
+        val newOps = ops.toMutableList()
+        if (index == 0) {
+            val maskMainIdx = newOps.indexOfFirst { it is EditOperation.MaskMain }
+            if (maskMainIdx != -1) {
+                newOps[maskMainIdx] = EditOperation.MaskMain(maskConfig)
+            } else {
+                newOps.add(EditOperation.MaskMain(maskConfig))
             }
-            val newOps = ops.toMutableList()
-            newOps[mergeIdx] = mergeOp.copy(items = items)
-            newOps
-        } else ops
+        } else {
+            val mergeIdx = newOps.indexOfFirst { it is EditOperation.Merge }
+            if (mergeIdx != -1) {
+                val mergeOp = newOps[mergeIdx] as EditOperation.Merge
+                val items = mergeOp.items.toMutableList()
+                val targetIndex = index - 1
+                if (targetIndex >= 0 && targetIndex < items.size) {
+                    items[targetIndex] = items[targetIndex].copy(maskConfig = maskConfig)
+                    newOps[mergeIdx] = mergeOp.copy(items = items)
+                }
+            }
+        }
+        newOps
     })
 }
 
@@ -291,39 +301,60 @@ fun VideoEditingViewModel.splitVideoSegment(index: Int, localSplitTimeMs: Long, 
 }
 
 fun VideoEditingViewModel.deleteSequenceSegment(index: Int) {
-    executeCommand(MutateListCommand("Delete Segment") { ops ->
-        val newOps = ops.toMutableList()
+    executeCommand(com.tharunbirla.librecuts.commands.MutateProjectCommand("Delete Segment") { project ->
+        val ops = project.operations.toMutableList()
+        var newSourceUri = project.sourceUri
+        
         if (index == 0) {
-            val mergeIdx = newOps.indexOfFirst { it is EditOperation.Merge }
+            val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
             if (mergeIdx != -1) {
-                val mergeOp = newOps[mergeIdx] as EditOperation.Merge
+                val mergeOp = ops[mergeIdx] as EditOperation.Merge
                 val items = mergeOp.items.toMutableList()
                 if (items.isNotEmpty()) {
-                    items.removeAt(0)
-                    newOps.removeAll { it is EditOperation.Trim || it is EditOperation.SpeedMain || it is EditOperation.ReverseMain }
+                    val promotedItem = items.removeAt(0)
+                    newSourceUri = promotedItem.uri
+                    
+                    ops.removeAll { it is EditOperation.Trim || it is EditOperation.SpeedMain || it is EditOperation.ReverseMain || it is EditOperation.MirrorMain || it is EditOperation.MaskMain }
+                    
+                    ops.add(0, EditOperation.Trim(promotedItem.trimStartMs, promotedItem.trimEndMs))
+                    if (promotedItem.speed != 1.0f) {
+                        ops.add(EditOperation.SpeedMain(promotedItem.speed, promotedItem.proxyUri))
+                    }
+                    if (promotedItem.isReversed) {
+                        ops.add(EditOperation.ReverseMain(true, promotedItem.proxyUri))
+                    }
+                    if (promotedItem.isMirrored) {
+                        ops.add(EditOperation.MirrorMain(true))
+                    }
+                    if (promotedItem.maskConfig.shape != EditOperation.MaskShape.NONE) {
+                        ops.add(EditOperation.MaskMain(promotedItem.maskConfig))
+                    }
+                    
                     if (items.isEmpty()) {
-                        newOps.remove(mergeOp)
+                        ops.remove(mergeOp)
                     } else {
-                        newOps[newOps.indexOf(mergeOp)] = mergeOp.copy(items = items)
+                        ops[ops.indexOf(mergeOp)] = mergeOp.copy(items = items)
                     }
                 }
             }
         } else {
-            val mergeIdx = newOps.indexOfFirst { it is EditOperation.Merge }
+            val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
             if (mergeIdx != -1) {
-                val mergeOp = newOps[mergeIdx] as EditOperation.Merge
+                val mergeOp = ops[mergeIdx] as EditOperation.Merge
                 val items = mergeOp.items.toMutableList()
-                if (index - 1 < items.size) {
-                    items.removeAt(index - 1)
+                val targetIdx = index - 1
+                if (targetIdx >= 0 && targetIdx < items.size) {
+                    items.removeAt(targetIdx)
                     if (items.isEmpty()) {
-                        newOps.removeAt(mergeIdx)
+                        ops.removeAt(mergeIdx)
                     } else {
-                        newOps[mergeIdx] = mergeOp.copy(items = items)
+                        ops[mergeIdx] = mergeOp.copy(items = items)
                     }
                 }
             }
         }
-        newOps
+        
+        project.copy(sourceUri = newSourceUri, operations = ops)
     })
 }
 

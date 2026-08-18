@@ -45,7 +45,6 @@ class MaskedFrameLayout @JvmOverloads constructor(
 
             if (maskConfig.feather > 0f) {
                 val featherPx = (maskConfig.feather * 0.4f).coerceIn(1f, 80f)
-                setLayerType(LAYER_TYPE_SOFTWARE, null)
                 val count = canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
                 super.dispatchDraw(canvas)
                 
