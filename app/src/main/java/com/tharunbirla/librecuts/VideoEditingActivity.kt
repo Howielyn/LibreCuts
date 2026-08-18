@@ -7941,18 +7941,26 @@ class VideoEditingActivity : AppCompatActivity() {
             return
         }
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Unsaved Edits")
-            .setMessage("You have unsaved changes in your project sequence. Would you like to save before quitting?")
-            .setPositiveButton("Save & Quit") { _, _ ->
-                shouldQuitAfterSave = true
-                saveProjectLauncher.launch("project.lcprj")
-            }
-            .setNeutralButton("Discard & Quit") { _, _ ->
-                finish()
-            }
-            .setNegativeButton("Keep Editing", null)
-            .show()
+        val bottomSheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val view = layoutInflater.inflate(R.layout.dialog_unsaved_changes, null)
+
+        view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnSaveAndQuit).setBounceClickListener {
+            bottomSheet.dismiss()
+            shouldQuitAfterSave = true
+            saveProjectLauncher.launch("project.lcprj")
+        }
+
+        view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnKeepEditing).setBounceClickListener {
+            bottomSheet.dismiss()
+        }
+
+        view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnDiscard).setBounceClickListener {
+            bottomSheet.dismiss()
+            finish()
+        }
+
+        bottomSheet.setContentView(view)
+        bottomSheet.show()
     }
 
     private fun getSnapTargetsMs(): List<Long> {
