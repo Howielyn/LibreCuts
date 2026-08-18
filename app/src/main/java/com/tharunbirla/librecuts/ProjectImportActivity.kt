@@ -219,8 +219,9 @@ class ProjectImportActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 contentResolver.openInputStream(projectUri!!)?.use { inputStream ->
-                    val json = inputStream.bufferedReader().use { it.readText() }
-                    editRecipe = ProjectSerializer.deserialize(json)
+                    editRecipe = inputStream.bufferedReader().use { reader ->
+                        ProjectSerializer.deserialize(reader)
+                    }
                 }
 
                 if (editRecipe != null) {

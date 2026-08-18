@@ -133,4 +133,12 @@ object ProjectSerializer {
         }
         return recipe.copy(operations = sanitizedOps)
     }
+
+    fun deserialize(reader: java.io.Reader): EditRecipe {
+        val recipe = gson.fromJson(reader, EditRecipe::class.java)
+        val sanitizedOps = recipe.operations.filterNot { 
+            it is EditOperation.MuteAudio && (it.id.startsWith("skipped_unknown_") || it.id.startsWith("skipped_failed_"))
+        }
+        return recipe.copy(operations = sanitizedOps)
+    }
 }
