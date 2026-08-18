@@ -115,12 +115,18 @@ fun VideoEditingViewModel.addTransitionOperation(index: Int, type: String, durat
 fun VideoEditingViewModel.updateSequenceOrder(orderedItems: List<EditOperation.MergeItem>) {
     executeCommand(MutateListCommand("Reorder Sequence") { ops ->
         val mergeIdx = ops.indexOfFirst { it is EditOperation.Merge }
+        val newOps = ops.toMutableList()
         if (mergeIdx != -1) {
             val mergeOp = ops[mergeIdx] as EditOperation.Merge
-            val newOps = ops.toMutableList()
-            newOps[mergeIdx] = mergeOp.copy(items = orderedItems)
-            newOps
-        } else ops
+            if (orderedItems.isEmpty()) {
+                newOps.removeAt(mergeIdx)
+            } else {
+                newOps[mergeIdx] = mergeOp.copy(items = orderedItems)
+            }
+        } else if (orderedItems.isNotEmpty()) {
+            newOps.add(EditOperation.Merge(orderedItems))
+        }
+        newOps
     })
 }
 
@@ -245,8 +251,19 @@ fun VideoEditingViewModel.splitVideoSegment(index: Int, localSplitTimeMs: Long, 
             if (trimIndex != -1) newOps[trimIndex] = currentTrim.copy(endMs = localSplitTimeMs)
             else newOps.add(EditOperation.Trim(0L, localSplitTimeMs))
             
+            val speedOp = newOps.filterIsInstance<EditOperation.SpeedMain>().lastOrNull()
+            val reverseOp = newOps.filterIsInstance<EditOperation.ReverseMain>().lastOrNull()
+            val mirrorOp = newOps.filterIsInstance<EditOperation.MirrorMain>().lastOrNull()
+            val maskOp = newOps.filterIsInstance<EditOperation.MaskMain>().lastOrNull()
+            
+            val speed = speedOp?.speed ?: 1.0f
+            val isReversed = reverseOp?.isReversed ?: false
+            val isMirrored = mirrorOp?.isMirrored ?: false
+            val maskConfig = maskOp?.maskConfig ?: EditOperation.MaskConfig()
+            val proxyUri = reverseOp?.proxyUri ?: speedOp?.proxyUri
+            
             val mergeIdx = newOps.indexOfFirst { it is EditOperation.Merge }
-            val newItem = EditOperation.MergeItem(sourceUri, sourceDuration, trimStartMs = localSplitTimeMs, trimEndMs = oldEndMs)
+            val newItem = EditOperation.MergeItem(sourceUri, sourceDuration, trimStartMs = localSplitTimeMs, trimEndMs = oldEndMs, speed = speed, isReversed = isReversed, isMirrored = isMirrored, maskConfig = maskConfig, proxyUri = proxyUri)
             if (mergeIdx != -1) {
                 val mergeOp = newOps[mergeIdx] as EditOperation.Merge
                 val items = mergeOp.items.toMutableList()

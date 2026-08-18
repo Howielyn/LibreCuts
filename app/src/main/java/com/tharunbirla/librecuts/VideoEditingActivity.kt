@@ -1450,11 +1450,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
                 toolbar.findViewById<ImageButton>(R.id.btnVideoMirror)?.setBounceClickListener {
                     selectedVideoIndex?.let { index ->
-                        if (index == 0 && viewModel.project.value?.operations?.any { it is EditOperation.Merge } != true) {
+                        if (index == 0) {
                             val isCurrentlyMirrored = viewModel.project.value?.operations?.any { it is EditOperation.MirrorMain && it.isMirrored } ?: false
                             viewModel.updateMainVideoMirror(!isCurrentlyMirrored)
                         } else {
-                            viewModel.toggleMergeItemMirror(index)
+                            viewModel.toggleMergeItemMirror(index - 1)
                         }
                         viewModel.project.value?.let { renderTracks(it) }
                         syncUiWithPlayer()
@@ -3554,7 +3554,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 
                 selectedVideoIndex = null
                 exitVideoEditingMode()
-                viewModel.updateSequenceOrder(newItems)
+                if (newItems.isNotEmpty()) {
+                    val primaryItem = newItems[0]
+                    viewModel.updateMainVideoTrim(primaryItem.trimStartMs, primaryItem.trimEndMs)
+                    viewModel.updateSequenceOrder(newItems.drop(1))
+                }
                 Toast.makeText(this@VideoEditingActivity, R.string.toast_freeze_frame_added_to_sequence, Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this@VideoEditingActivity, R.string.toast_failed_to_create_freeze_frame, Toast.LENGTH_SHORT).show()

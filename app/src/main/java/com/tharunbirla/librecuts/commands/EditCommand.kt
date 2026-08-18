@@ -52,6 +52,12 @@ class ReplaceUniqueOperationCommand(
         val index = ops.indexOfFirst { it::class == newOperation::class }
         if (index != -1) {
             ops[index] = newOperation
+            val iterator = ops.listIterator(index + 1)
+            while (iterator.hasNext()) {
+                if (iterator.next()::class == newOperation::class) {
+                    iterator.remove()
+                }
+            }
         } else {
             ops.add(newOperation)
         }
