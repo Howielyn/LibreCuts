@@ -284,20 +284,85 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class LanguageItem(
+        val tag: String,
+        val displayName: String
+    )
+
+    private fun getAvailableLanguages(): List<LanguageItem> {
+        val result = mutableListOf<LanguageItem>()
+        result.add(LanguageItem("", getString(R.string.str_system_default)))
+
+        val tags = mutableSetOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val localeConfig = android.app.LocaleConfig(this)
+                val locales = localeConfig.supportedLocales
+                if (locales != null) {
+                    for (i in 0 until locales.size()) {
+                        val locale = locales.get(i)
+                        if (locale != null) {
+                            tags.add(locale.toLanguageTag())
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "LocaleConfig error", e)
+            }
+        }
+
+        if (tags.isEmpty()) {
+            try {
+                val resId = resources.getIdentifier("_generated_res_locale_config", "xml", packageName)
+                if (resId != 0) {
+                    val parser = resources.getXml(resId)
+                    var eventType = parser.eventType
+                    while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                        if (eventType == org.xmlpull.v1.XmlPullParser.START_TAG && parser.name == "locale") {
+                            val name = parser.getAttributeValue("http://schemas.android.com/apk/res/android", "name")
+                            if (!name.isNullOrEmpty()) {
+                                tags.add(name)
+                            }
+                        }
+                        eventType = parser.next()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "XmlParser _generated_res_locale_config error", e)
+            }
+        }
+
+        if (tags.isEmpty()) {
+            tags.addAll(listOf("en", "de", "et", "sk", "pt-BR"))
+        }
+
+        val items = tags.map { tag ->
+            val locale = java.util.Locale.forLanguageTag(tag)
+            val name = when (tag.lowercase()) {
+                "pt-br" -> "Português (Brasil)"
+                "zh-cn" -> "中文 (简体)"
+                "zh-tw" -> "中文 (繁體)"
+                else -> locale.getDisplayName(locale).replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
+            }
+            LanguageItem(tag, name)
+        }.sortedBy { it.displayName.lowercase() }
+
+        result.addAll(items)
+        return result
+    }
+
     private fun updateLanguageUI() {
         val currentLocales = AppCompatDelegate.getApplicationLocales()
         if (currentLocales.isEmpty) {
             binding.tvCurrentLanguage.text = getString(R.string.str_system_default)
         } else {
             val locale = currentLocales.get(0)
-            when (locale?.language) {
-                "en" -> binding.tvCurrentLanguage.text = "English"
-                "de" -> binding.tvCurrentLanguage.text = "Deutsch"
-                "et" -> binding.tvCurrentLanguage.text = "Eesti"
-                "sk" -> binding.tvCurrentLanguage.text = "Slovenčina"
-                "pt" -> binding.tvCurrentLanguage.text = "Português (Brasil)"
-                else -> binding.tvCurrentLanguage.text = locale?.displayLanguage
+            val tag = locale?.toLanguageTag() ?: ""
+            val name = when (tag.lowercase()) {
+                "pt-br" -> "Português (Brasil)"
+                else -> locale?.getDisplayName(locale)?.replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
             }
+            binding.tvCurrentLanguage.text = name ?: getString(R.string.str_system_default)
         }
     }
 
@@ -357,65 +422,44 @@ class MainActivity : AppCompatActivity() {
         val view = layoutInflater.inflate(R.layout.language_bottom_sheet_dialog, null)
         dialog.setContentView(view)
 
-        val currentLocales = AppCompatDelegate.getApplicationLocales()
-        val langTag = if (currentLocales.isEmpty) "" else (currentLocales.get(0)?.toLanguageTag() ?: "")
-        val langCode = if (currentLocales.isEmpty) "" else (currentLocales.get(0)?.language ?: "")
-
-        val ivCheckLangSystem = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangSystem)
-        val ivCheckLangEn = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangEn)
-        val ivCheckLangDe = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangDe)
-        val ivCheckLangEt = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangEt)
-        val ivCheckLangSk = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangSk)
-        val ivCheckLangPtBr = view.findViewById<android.widget.ImageView>(R.id.ivCheckLangPtBr)
-
-        if (langTag.startsWith("pt", ignoreCase = true)) {
-            ivCheckLangPtBr?.visibility = View.VISIBLE
-        } else {
-            when (langCode) {
-                "en" -> ivCheckLangEn?.visibility = View.VISIBLE
-                "de" -> ivCheckLangDe?.visibility = View.VISIBLE
-                "et" -> ivCheckLangEt?.visibility = View.VISIBLE
-                "sk" -> ivCheckLangSk?.visibility = View.VISIBLE
-                else -> ivCheckLangSystem?.visibility = View.VISIBLE
-            }
-        }
-
         view.findViewById<View>(R.id.btnCloseSheet)?.setBounceClickListener {
             dialog.dismiss()
         }
 
-        fun setLanguage(code: String) {
-            val appLocale = if (code.isEmpty()) {
-                LocaleListCompat.getEmptyLocaleList()
+        val container = view.findViewById<android.widget.LinearLayout>(R.id.layoutLanguageContainer)
+        val currentLocales = AppCompatDelegate.getApplicationLocales()
+        val currentTag = if (currentLocales.isEmpty) "" else (currentLocales.get(0)?.toLanguageTag() ?: "")
+
+        val availableLanguages = getAvailableLanguages()
+
+        for (item in availableLanguages) {
+            val itemView = layoutInflater.inflate(R.layout.item_language_selection, container, false)
+            val tvName = itemView.findViewById<TextView>(R.id.tvLanguageName)
+            val ivCheck = itemView.findViewById<android.widget.ImageView>(R.id.ivCheckLanguage)
+
+            tvName.text = item.displayName
+
+            val isSelected = if (item.tag.isEmpty()) {
+                currentTag.isEmpty()
             } else {
-                LocaleListCompat.forLanguageTags(code)
+                currentTag.equals(item.tag, ignoreCase = true) ||
+                (item.tag.length == 2 && currentTag.startsWith(item.tag, ignoreCase = true))
             }
-            AppCompatDelegate.setApplicationLocales(appLocale)
-            dialog.dismiss()
-        }
 
-        view.findViewById<View>(R.id.layoutLangSystem)?.setBounceClickListener {
-            setLanguage("")
-        }
+            ivCheck.visibility = if (isSelected) View.VISIBLE else View.GONE
 
-        view.findViewById<View>(R.id.layoutLangEn)?.setBounceClickListener {
-            setLanguage("en")
-        }
+            itemView.setBounceClickListener {
+                val appLocale = if (item.tag.isEmpty()) {
+                    LocaleListCompat.getEmptyLocaleList()
+                } else {
+                    LocaleListCompat.forLanguageTags(item.tag)
+                }
+                AppCompatDelegate.setApplicationLocales(appLocale)
+                updateLanguageUI()
+                dialog.dismiss()
+            }
 
-        view.findViewById<View>(R.id.layoutLangDe)?.setBounceClickListener {
-            setLanguage("de")
-        }
-
-        view.findViewById<View>(R.id.layoutLangEt)?.setBounceClickListener {
-            setLanguage("et")
-        }
-
-        view.findViewById<View>(R.id.layoutLangSk)?.setBounceClickListener {
-            setLanguage("sk")
-        }
-
-        view.findViewById<View>(R.id.layoutLangPtBr)?.setBounceClickListener {
-            setLanguage("pt-BR")
+            container?.addView(itemView)
         }
 
         dialog.show()

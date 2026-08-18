@@ -198,6 +198,27 @@ class VideoEditingActivity : AppCompatActivity() {
             }
         }
     }
+    
+    private val exportReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_PROGRESS -> {
+                    val progress = intent.getIntExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_PROGRESS, 0)
+                    viewModel.updateExportProgress(progress)
+                }
+                com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_SUCCESS -> {
+                    val uri = intent.getStringExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_SAVED_URI)
+                    viewModel.finishExport()
+                    android.widget.Toast.makeText(this@VideoEditingActivity, R.string.toast_video_exported_to_gallery_succ, android.widget.Toast.LENGTH_LONG).show()
+                }
+                com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_FAILURE -> {
+                    val error = intent.getStringExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_ERROR) ?: "Unknown Error"
+                    viewModel.exportError(error)
+                    showProErrorDialog(ErrorCode.FFMPEG_EXECUTION_FAILED, error)
+                }
+            }
+        }
+    }
     private var activeDirectoryTitleView: TextView? = null
     private var activeDirectoryPathView: TextView? = null
 
@@ -510,6 +531,15 @@ class VideoEditingActivity : AppCompatActivity() {
         // Initialize ViewModel and engine
         viewModel = ViewModelProvider(this).get(VideoEditingViewModel::class.java)
         ffmpegEngine = FFmpegRenderEngine(this)
+        
+        androidx.localbroadcastmanager.content.LocalBroadcastManager.getInstance(this).registerReceiver(
+            exportReceiver,
+            android.content.IntentFilter().apply {
+                addAction(com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_PROGRESS)
+                addAction(com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_SUCCESS)
+                addAction(com.tharunbirla.librecuts.services.ExportService.ACTION_EXPORT_FAILURE)
+            }
+        )
 
         // Register back-press callback to prompt for quit confirmation
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -3592,6 +3622,23 @@ class VideoEditingActivity : AppCompatActivity() {
                 trimTrack?.setRange(op.originalDurationMs, op.internalStartMs, initialEndMs)
                 
                 tvTrimValue?.text = "${formatDuration(op.internalStartMs.toInt())} - ${formatDuration(endMs.toInt())}"
+                
+                // Extract waveform
+                if (trimTrack != null) {
+                    val waveJob = lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val path = getFilePathFromUri(op.audioUri)
+                        if (path != null) {
+                            val amps = com.tharunbirla.librecuts.utils.AudioWaveformExtractor.extractWaveform(this@VideoEditingActivity, path)
+                            if (amps != null) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    trimTrack.audioAmplitudes = amps
+                                    trimTrack.invalidate()
+                                }
+                            }
+                        }
+                    }
+                    activeRenderJobs.add(waveJob)
+                }
             } else {
                 trimTrack?.setRange(maxMs, 0, maxMs)
                 tvTrimValue?.text = "Unknown duration"
@@ -4671,6 +4718,13 @@ class VideoEditingActivity : AppCompatActivity() {
      * is now passed to buildConsolidatedFFmpegCommand so drawtext gets a valid fontfile= path.
      */
     private fun saveAction() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                android.widget.Toast.makeText(this, "Please grant notification permission and try exporting again.", android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
+        }
         commitActiveEditsIfAny()
         if (isShowingPreview) dismissPreview()
         val project = viewModel.project.value
@@ -4690,7 +4744,7 @@ class VideoEditingActivity : AppCompatActivity() {
                     "Check that assets/fonts/Roboto-Regular.ttf exists.")
         }
 
-        exportJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.Job()).launch {
+        lifecycleScope.launch(Dispatchers.Main) {
             var tempOutputFile: File? = null
             var concatFile: File? = null
             try {
@@ -4702,12 +4756,11 @@ class VideoEditingActivity : AppCompatActivity() {
                 tempOutputFile = File(cacheDir, "temp_video_${System.currentTimeMillis()}$ext")
                 val tempOutputPath = tempOutputFile.absolutePath
 
-                // ── THE FIX: pass fontFilePath as the third argument ──────────────
                 var ffmpegCommand = viewModel.buildConsolidatedFFmpegCommand(
                     sourceFilePath = sourceFilePath,
                     outputFilePath = tempOutputPath,
                     fontFilePath = fontFilePath,
-                    context = this@VideoEditingActivity  // needed to cache content:// URIs for audio/image
+                    context = this@VideoEditingActivity
                 )
 
                 if (ffmpegCommand == null) {
@@ -4717,10 +4770,9 @@ class VideoEditingActivity : AppCompatActivity() {
 
                 Log.d(TAG, "Raw FFmpeg command: $ffmpegCommand")
 
-                // Handle merge operations
                 val currentProject = viewModel.project.value
                 if (currentProject != null && ffmpegCommand.contains("(CONCAT_LIST:")) {
-                    val cmdSnapshot = ffmpegCommand  // capture for closure — var can't be smart-cast
+                    val cmdSnapshot = ffmpegCommand
                     concatFile = withContext(Dispatchers.IO) {
                         val concatListStart = cmdSnapshot.indexOf("(CONCAT_LIST:") + "(CONCAT_LIST:".length
                         val concatListEnd = cmdSnapshot.lastIndexOf(")")
@@ -4730,8 +4782,6 @@ class VideoEditingActivity : AppCompatActivity() {
 
                             val file = File(cacheDir, "concat_${System.currentTimeMillis()}.txt")
                             file.writeText(processedConcatList)
-                            Log.d(TAG, "Concat file: ${file.absolutePath}")
-                            Log.d(TAG, "Concat content:\n$processedConcatList")
                             file
                         } else null
                     }
@@ -4745,64 +4795,30 @@ class VideoEditingActivity : AppCompatActivity() {
                 }
 
                 Log.d(TAG, "Final FFmpeg command: $ffmpegCommand")
-
                 val totalDurationSecs = getTotalSequenceDuration() / 1000.0
-                val result = ffmpegEngine.exportFinal(
-                    ffmpegCommand = ffmpegCommand,
-                    totalDurationSecs = totalDurationSecs,
-                    onProgress = { progress ->
-                        lifecycleScope.launch(Dispatchers.Main) {
-                            viewModel.updateExportProgress(progress)
-                        }
-                    }
-                )
 
-                when (result) {
-                    is FFmpegRenderEngine.RenderResult.Success -> {
-                        val savedUri = saveVideoToGallery(tempOutputFile)
-                        if (savedUri != null) {
-                            viewModel.finishExport()
-                            Toast.makeText(
-                                this@VideoEditingActivity,
-                                R.string.toast_video_exported_to_gallery_succ,
-                                Toast.LENGTH_LONG
-                            ).show()
-                            Log.d(TAG, "Export successful: $savedUri")
-                            tempOutputFile.delete()
-                            concatFile?.delete()
-                        } else {
-                            viewModel.exportError("Failed to save video to Gallery")
-                            Toast.makeText(
-                                this@VideoEditingActivity,
-                                R.string.toast_failed_to_save_video_to_galler,
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                    is FFmpegRenderEngine.RenderResult.Failure -> {
-                        viewModel.exportError(result.error)
-                        showProErrorDialog(ErrorCode.FFMPEG_EXECUTION_FAILED, result.error)
-                        Toast.makeText(
-                            this@VideoEditingActivity,
-                            "Export failed. Check the error log dialog for details.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                    FFmpegRenderEngine.RenderResult.Cancelled -> {
-                        viewModel.exportError("Export cancelled")
-                        Toast.makeText(this@VideoEditingActivity, R.string.toast_export_cancelled, Toast.LENGTH_SHORT).show()
-                    }
+                // Start ExportService
+                val intent = Intent(this@VideoEditingActivity, com.tharunbirla.librecuts.services.ExportService::class.java).apply {
+                    putExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_COMMAND, ffmpegCommand)
+                    putExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_TEMP_OUTPUT_PATH, tempOutputPath)
+                    putExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_CONCAT_FILE_PATH, concatFile?.absolutePath)
+                    putExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_TOTAL_DURATION_SECS, totalDurationSecs)
+                    putExtra(com.tharunbirla.librecuts.services.ExportService.EXTRA_IS_AUDIO_ONLY, isAudioOnly)
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                tempOutputFile?.let { if (it.exists()) it.delete() }
-                concatFile?.let { if (it.exists()) it.delete() }
-                viewModel.exportError("Export cancelled")
-                Toast.makeText(this@VideoEditingActivity, R.string.toast_export_cancelled, Toast.LENGTH_SHORT).show()
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                
+                Toast.makeText(this@VideoEditingActivity, "Export started in background...", Toast.LENGTH_SHORT).show()
+
             } catch (e: Exception) {
                 tempOutputFile?.let { if (it.exists()) it.delete() }
                 concatFile?.let { if (it.exists()) it.delete() }
                 viewModel.exportError(e.message ?: "Unknown error")
-                Log.e(TAG, "Export exception: ${e.message}", e)
+                Log.e(TAG, "Export start exception: ${e.message}", e)
             }
         }
     }
@@ -6147,6 +6163,24 @@ class VideoEditingActivity : AppCompatActivity() {
             // Selection highlight is drawn by TrackTrimView in the foreground
             segmentView.background = null
             
+            if (!isPhoto) {
+                val viewRef = trackTrimView
+                val waveJob = lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val path = getFilePathFromUri(item.uri)
+                    if (path != null) {
+                        val amps = com.tharunbirla.librecuts.utils.AudioWaveformExtractor.extractWaveform(this@VideoEditingActivity, path)
+                        if (amps != null) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                viewRef.audioAmplitudes = amps
+                                viewRef.isAudioTrack = true 
+                                viewRef.invalidate()
+                            }
+                        }
+                    }
+                }
+                activeRenderJobs.add(waveJob)
+            }
+            
             trackTrimView.onTrimAdjustingWithDelta = { startMs, endMs, deltaL, deltaR ->
                 val rawStart = (startMs * item.speed).toLong()
                 val rawEnd = (endMs * item.speed).toLong()
@@ -6452,6 +6486,21 @@ class VideoEditingActivity : AppCompatActivity() {
                     onDragStateChanged = { isDragging ->
                         isTrackDragging = isDragging
                     }
+                    
+                    val viewRef = this
+                    val waveJob = lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val path = getFilePathFromUri(op.audioUri)
+                        if (path != null) {
+                            val amps = com.tharunbirla.librecuts.utils.AudioWaveformExtractor.extractWaveform(this@VideoEditingActivity, path)
+                            if (amps != null) {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    viewRef.audioAmplitudes = amps
+                                    viewRef.invalidate()
+                                }
+                            }
+                        }
+                    }
+                    activeRenderJobs.add(waveJob)
                 }
                 audioTrackContainer.addView(trackView)
             }
@@ -6643,6 +6692,23 @@ class VideoEditingActivity : AppCompatActivity() {
         trimTrackView.activeStartMs = item.trimStartMs
         trimTrackView.activeEndMs = item.trimEndMs
         trimTrackView.setRange(maxDur, item.trimStartMs, item.trimEndMs)
+        
+        if (!isPhoto) {
+            val waveJob = lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val path = getFilePathFromUri(item.uri)
+                if (path != null) {
+                    val amps = com.tharunbirla.librecuts.utils.AudioWaveformExtractor.extractWaveform(this@VideoEditingActivity, path)
+                    if (amps != null) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            trimTrackView.audioAmplitudes = amps
+                            trimTrackView.isAudioTrack = true
+                            trimTrackView.invalidate()
+                        }
+                    }
+                }
+            }
+            activeRenderJobs.add(waveJob)
+        }
 
         var currentStart = item.trimStartMs
         var currentEnd = item.trimEndMs

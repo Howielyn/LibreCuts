@@ -46,6 +46,7 @@ class TrackTrimView @JvmOverloads constructor(
     var beats: List<Long> = emptyList()
     var internalStartMs: Long = 0L
     var keyframes: List<Long> = emptyList()
+    var audioAmplitudes: FloatArray? = null
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -190,15 +191,40 @@ class TrackTrimView @JvmOverloads constructor(
             canvas.clipRect(rectF)
             val centerY = height / 2f
             val maxAmplitude = height * 0.35f
-            var x = startX + handleWidth + 4f
-            val waveSpacing = 12f
-            var timeOffset = 0f
-            while (x < endX - handleWidth) {
-                // Procedural wave using sine and pseudo-random
-                val amplitude = maxAmplitude * (0.3f + 0.7f * Math.abs(Math.sin((x + timeOffset) * 0.05).toFloat()))
-                canvas.drawLine(x, centerY - amplitude, x, centerY + amplitude, wavePaint)
-                x += waveSpacing
-                timeOffset += 1f
+            
+            if (audioAmplitudes != null && audioAmplitudes!!.isNotEmpty()) {
+                val amps = audioAmplitudes!!
+                var x = startX + handleWidth + 4f
+                val waveSpacing = 6f // Closer spacing for real waveforms
+                
+                // Map the time at pixel x to an index in audioAmplitudes
+                while (x < endX - handleWidth) {
+                    val relativeTimeMs = ((x - startX) * msPerPixel).toLong()
+                    // audioAmplitudes represents the entire videoDurationMs
+                    val index = ((relativeTimeMs.toFloat() / videoDurationMs) * amps.size).toInt()
+                    
+                    val ampValue = if (index in amps.indices) amps[index] else 0.0f
+                    val amplitude = maxAmplitude * ampValue
+                    
+                    if (amplitude > 1f) {
+                        canvas.drawLine(x, centerY - amplitude, x, centerY + amplitude, wavePaint)
+                    } else {
+                        // Draw at least a tiny dot for silence
+                        canvas.drawLine(x, centerY - 1f, x, centerY + 1f, wavePaint)
+                    }
+                    x += waveSpacing
+                }
+            } else {
+                // Fallback to procedural wave if no data
+                var x = startX + handleWidth + 4f
+                val waveSpacing = 12f
+                var timeOffset = 0f
+                while (x < endX - handleWidth) {
+                    val amplitude = maxAmplitude * (0.3f + 0.7f * Math.abs(Math.sin((x + timeOffset) * 0.05).toFloat()))
+                    canvas.drawLine(x, centerY - amplitude, x, centerY + amplitude, wavePaint)
+                    x += waveSpacing
+                    timeOffset += 1f
+                }
             }
             canvas.restore()
         }

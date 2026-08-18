@@ -13,6 +13,10 @@ android {
     namespace 'com.tharunbirla.librecuts'
     compileSdk 34
 
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     lint {
         disable 'UseAppTint', 'MissingTranslation', 'ExtraTranslation'
     }
