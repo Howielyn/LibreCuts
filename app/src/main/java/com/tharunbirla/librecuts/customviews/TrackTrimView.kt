@@ -137,27 +137,7 @@ class TrackTrimView @JvmOverloads constructor(
         if (isMainVideoTrack) {
             if (isSelectedTrack) {
                 if (isTrimEnabled) {
-                    val ghostPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.parseColor("#4DFFFFFF") // 30% white
-                        style = Paint.Style.STROKE
-                        strokeWidth = 4f
-                        pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 10f), 0f)
-                    }
-                    val ghostFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.parseColor("#1AFFFFFF") // 10% white
-                        style = Paint.Style.FILL
-                    }
-                    val fullRect = RectF(0f, 0f, width.toFloat(), height.toFloat())
-                    canvas.drawRect(fullRect, ghostFill)
-                    canvas.drawRect(fullRect, ghostPaint)
-                    
-                    // Only dim the unused bounds when selected, so it doesn't leak over adjacent clips
-                    if (startX > 0f) {
-                        canvas.drawRect(0f, 0f, startX, height.toFloat(), dimPaint)
-                    }
-                    if (endX < width) {
-                        canvas.drawRect(endX, 0f, width.toFloat(), height.toFloat(), dimPaint)
-                    }
+                    // Dim bounds removed to prevent covering adjacent clips
                     
                     // Draw a thick border enclosing the active range when selected
                     borderPaint.color = Color.parseColor("#FF4081")

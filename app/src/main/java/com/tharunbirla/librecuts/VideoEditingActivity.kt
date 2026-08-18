@@ -5554,24 +5554,26 @@ class VideoEditingActivity : AppCompatActivity() {
     }
 
     private var lastSoughtGlobalPos = -1L
+    private var lastSeekCallTimeMs = 0L
     private var pendingSeekRunnable: Runnable? = null
 
     private fun seekToGlobalPosition(globalPos: Long, force: Boolean = false) {
         if (!::player.isInitialized) return
         
-        val timeDiff = Math.abs(globalPos - lastSoughtGlobalPos)
-        if (!force && timeDiff < 40 && lastSoughtGlobalPos != -1L) {
+        val currentTime = System.currentTimeMillis()
+        if (!force && (currentTime - lastSeekCallTimeMs) < 60) {
             pendingSeekRunnable?.let { customVideoSeeker.removeCallbacks(it) }
             val runnable = Runnable {
                 seekToGlobalPosition(globalPos, force = true)
             }
             pendingSeekRunnable = runnable
-            customVideoSeeker.postDelayed(runnable, 50)
+            customVideoSeeker.postDelayed(runnable, 60 - (currentTime - lastSeekCallTimeMs))
             return
         }
         
         pendingSeekRunnable?.let { customVideoSeeker.removeCallbacks(it) }
         lastSoughtGlobalPos = globalPos
+        lastSeekCallTimeMs = currentTime
 
         var remainingPos = globalPos
         var index = 0
@@ -6188,6 +6190,18 @@ class VideoEditingActivity : AppCompatActivity() {
                     seekToGlobalPosition(clipStartGlobal + rawStart)
                 } else if (deltaR != 0L) {
                     seekToGlobalPosition(clipStartGlobal + rawEnd)
+                }
+
+                trackTrimView.layoutParams = (trackTrimView.layoutParams as FrameLayout.LayoutParams).apply {
+                    leftMargin = -(startMs * pixelsPerMs).toInt()
+                }
+
+                val rv = segmentView.findViewById<RecyclerView>(R.id.segmentFrameRecyclerView)
+                (rv.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(0, -(startMs * pixelsPerMs).toInt())
+
+                if (deltaL != 0L) {
+                    val deltaPx = (deltaL * pixelsPerMs).toInt()
+                    timelineHorizontalScroll.scrollBy(deltaPx, 0)
                 }
 
                 val currentTrimmedDur = (rawEnd - rawStart)
